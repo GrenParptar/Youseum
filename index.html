@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>My Museum — Virtual Gallery</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; background: #07070a; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; touch-action: none; }
+  #app { position: fixed; inset: 0; } canvas { display: block; }
+  #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 2; background: radial-gradient(120% 100% at 50% 50%, transparent 55%, rgba(0,0,0,.45) 100%); }
+  #crosshair { position: fixed; left: 50%; top: 50%; width: 20px; height: 20px; transform: translate(-50%, -50%); pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 5; }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(255,255,255,.85); box-shadow: 0 0 4px rgba(0,0,0,.6); }
+  #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); } #crosshair::after { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
+  body.tour #crosshair { opacity: .85; } body.tour #crosshair.active::before, body.tour #crosshair.active::after { background: #ffd27a; }
+  body.touch #crosshair, body.guided #crosshair, body.paused #crosshair { opacity: 0; }
+  #prompt { position: fixed; left: 50%; bottom: 110px; transform: translateX(-50%); background: rgba(12,12,16,.82); border: 1px solid rgba(255,255,255,.12); color: #f4f4f6; padding: 9px 16px; border-radius: 999px; font-size: 14px; pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 6; white-space: nowrap; backdrop-filter: blur(6px); }
+  #prompt.show { opacity: 1; } #prompt b { color: #ffd27a; font-weight: 600; } body.paused #prompt { opacity: 0 !important; }
+  #pausehint { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 6; text-align: center; color: #e7e7ee; display: none; pointer-events: none; }
+  body.paused #pausehint { display: block; } #pausehint .big { font-size: 20px; font-weight: 650; margin-bottom: 6px; } #pausehint .sm { font-size: 13.5px; color: #b3b3bf; } #pausehint b { color: #ffd27a; }
+  #roomlabel { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 6; font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: #d9d9e2; background: rgba(12,12,16,.6); border: 1px solid rgba(255,255,255,.1); padding: 7px 16px; border-radius: 999px; opacity: 0; transition: opacity .2s; backdrop-filter: blur(6px); }
+  body.tour #roomlabel, body.paused #roomlabel { opacity: 1; }
+  #map { position: fixed; top: 14px; right: 14px; z-index: 7; width: 168px; height: 150px; background: rgba(10,10,14,.74); border: 1px solid rgba(255,255,255,.14); border-radius: 10px; backdrop-filter: blur(6px); opacity: 0; transition: opacity .2s; cursor: pointer; }
+  body.tour #map, body.paused #map { opacity: 1; }
+  #gtbar { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); z-index: 9; display: none; gap: 14px; align-items: center; background: rgba(12,12,16,.85); color: #f0f0f4; border: 1px solid rgba(255,255,255,.14); padding: 10px 16px; border-radius: 999px; font-size: 14px; backdrop-filter: blur(6px); } body.guided #gtbar { display: flex; }
+  #gtbar button { cursor: pointer; border: 0; background: #ffd27a; color: #2a1c00; font: 600 13px inherit; padding: 7px 14px; border-radius: 999px; }
+  #overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: radial-gradient(1200px 600px at 50% 30%, rgba(40,40,55,.5), rgba(6,6,9,.94)); backdrop-filter: blur(3px); transition: opacity .25s; } #overlay.hidden { opacity: 0; pointer-events: none; }
+  .card { width: min(580px, 92vw); max-height: 92vh; overflow: auto; background: rgba(18,18,24,.92); border: 1px solid rgba(255,255,255,.10); border-radius: 18px; padding: 28px 30px; box-shadow: 0 30px 80px rgba(0,0,0,.6); }
+  .card h1 { font-size: 27px; font-weight: 650; margin-bottom: 6px; } .card h1 .accent { color: #ffd27a; } .card p.sub { color: #b7b7c2; font-size: 14.5px; margin-bottom: 18px; }
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 18px; margin-bottom: 20px; } .controls .row { display: flex; align-items: center; gap: 9px; font-size: 13px; color: #d6d6df; }
+  kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 7px; background: #2a2a35; border: 1px solid #3d3d4a; border-bottom-width: 2px; border-radius: 6px; font: 600 11px ui-monospace, monospace; color: #fff; }
+  .btn { appearance: none; border: 0; cursor: pointer; font: 600 15px inherit; padding: 13px 18px; border-radius: 12px; transition: transform .08s, filter .15s; width: 100%; } .btn:active { transform: translateY(1px); }
+  .btn.primary { background: linear-gradient(180deg,#ffd98a,#ffc24d); color: #2a1c00; } .btn.ghost { background: rgba(255,255,255,.07); color: #e7e7ee; border: 1px solid rgba(255,255,255,.12); margin-top: 10px; }
+  .hint { margin-top: 15px; font-size: 12.5px; color: #8a8a97; text-align: center; line-height: 1.5; }
+  .touchonly { display: none; } body.touch .touchonly { display: flex; } body.touch .desktoponly { display: none; }
+  #menuBtn { position: fixed; top: 14px; left: 14px; z-index: 16; width: 46px; height: 46px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14); background: rgba(16,16,22,.8); color: #fff; font-size: 20px; cursor: pointer; backdrop-filter: blur(8px); }
+  #menu { position: fixed; top: 0; left: 0; bottom: 0; width: min(340px, 88vw); z-index: 25; background: rgba(14,14,19,.98); border-right: 1px solid rgba(255,255,255,.1); padding: 22px; transform: translateX(-105%); transition: transform .25s; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; } #menu.open { transform: translateX(0); }
+  #menu h2 { font-size: 19px; } #menu h2 .accent { color: #ffd27a; } #menu .close { position: absolute; top: 16px; right: 16px; background: none; border: 0; color: #aaa; font-size: 22px; cursor: pointer; }
+  .grp { display: flex; flex-direction: column; gap: 8px; padding-bottom: 14px; border-bottom: 1px solid rgba(255,255,255,.08); } .grp:last-child { border-bottom: 0; }
+  .grp .lbl { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #7a7a86; margin-bottom: 2px; }
+  #menu button.item { appearance: none; cursor: pointer; text-align: left; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.05); color: #ececf2; font: 600 14px inherit; padding: 11px 13px; border-radius: 10px; } #menu button.item:hover { background: rgba(255,255,255,.13); }
+  #menu button.item.accent { background: linear-gradient(180deg,#ffd98a,#ffc24d); color: #2a1c00; border-color: transparent; }
+  .seg { display: flex; gap: 6px; } .seg button { flex: 1; cursor: pointer; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #cfcfd8; font: 600 13px inherit; padding: 9px; border-radius: 9px; } .seg button.on { background: #ffd27a; color: #2a1c00; border-color: transparent; }
+  .musicrow { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #d6d6df; }
+  .switch { position: relative; width: 44px; height: 26px; } .switch input { display: none; } .switch span { position: absolute; inset: 0; background: #3a3a46; border-radius: 999px; transition: .2s; cursor: pointer; } .switch span::after { content:""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: .2s; }
+  .switch input:checked + span { background: #ffc24d; } .switch input:checked + span::after { transform: translateX(18px); } input[type=range] { width: 100%; accent-color: #ffc24d; } #count { font-size: 12.5px; color: #9a9aa6; }
+  .wing { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 9px; display: flex; flex-direction: column; gap: 6px; }
+  .wing .wtop { display: flex; gap: 6px; align-items: center; } .wing .kind { font-size: 10px; padding: 2px 6px; border-radius: 5px; background: rgba(255,210,122,.18); color: #ffd27a; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+  .wing input.wname { flex: 1; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px 8px; font: 600 13px inherit; min-width: 0; }
+  .wing select { background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px; font: 500 12.5px inherit; flex: 1; }
+  .wing .wbtns { display: flex; gap: 6px; } .wing .wbtns button { flex: 1; cursor: pointer; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #dcdce4; font: 600 12px inherit; padding: 7px; border-radius: 7px; } .wing .wbtns button:hover { background: rgba(255,255,255,.14); } .wing .wbtns button.has { border-color: #ffc24d55; color: #ffd27a; }
+  #overview { position: fixed; inset: 0; z-index: 28; background: rgba(7,7,11,.94); backdrop-filter: blur(6px); display: none; flex-direction: column; padding: 22px; } #overview.open { display: flex; }
+  #overview .ohead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; } #overview h2 { font-size: 22px; } #overview h2 .accent { color: #ffd27a; }
+  #overview .oclose { cursor: pointer; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); color: #fff; font: 600 14px inherit; padding: 9px 14px; border-radius: 9px; }
+  #ogrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; overflow-y: auto; padding-bottom: 20px; }
+  .ocard { background: rgba(22,22,28,.9); border: 1px solid rgba(255,255,255,.1); border-radius: 14px; overflow: hidden; cursor: pointer; transition: transform .1s, border-color .15s; } .ocard:hover { transform: translateY(-3px); border-color: #ffc24d66; } .ocard .obar { height: 6px; } .ocard .obody { padding: 12px 14px; }
+  .ocard .otitle { font-size: 16px; font-weight: 650; display: flex; align-items: center; gap: 8px; } .ocard .ochip { font-size: 10px; padding: 2px 6px; border-radius: 5px; background: rgba(255,255,255,.1); color: #cfcfd8; text-transform: uppercase; letter-spacing: .5px; }
+  .ocard .ometa { font-size: 12.5px; color: #9a9aa6; margin: 4px 0 10px; } .ocard .othumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; } .ocard .othumbs div { aspect-ratio: 1; border-radius: 6px; background: #2a2a33 center/cover no-repeat; display: grid; place-items: center; color: #6a6a76; font-size: 18px; }
+  #touch { position: fixed; inset: 0; z-index: 8; display: none; } body.tour.touch #touch { display: block; }
+  #joy { position: absolute; left: 30px; bottom: 30px; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.18); }
+  #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255,255,255,.5); border: 2px solid rgba(255,255,255,.7); }
+  #useBtn { position: absolute; right: 34px; bottom: 64px; width: 84px; height: 84px; border-radius: 50%; border: 2px solid rgba(255,210,122,.8); background: rgba(255,210,122,.18); color: #ffe6b0; font: 700 16px inherit; letter-spacing: 1px; } #useBtn:active { background: rgba(255,210,122,.4); }
+  #wingBtn { position: absolute; right: 40px; bottom: 158px; width: 72px; height: 56px; border-radius: 14px; border: 2px solid rgba(180,210,255,.7); background: rgba(120,150,255,.18); color: #cfe0ff; font: 700 13px inherit; display: none; } body.tour.touch #wingBtn { display: block; } #wingBtn:active { background: rgba(120,150,255,.4); }
+  #toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%) translateY(20px); background: rgba(20,20,26,.96); border: 1px solid rgba(255,255,255,.12); color: #f0f0f4; padding: 11px 18px; border-radius: 10px; font-size: 14px; z-index: 32; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: 80vw; text-align: center; } #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #drop { position: fixed; inset: 0; z-index: 18; pointer-events: none; display: grid; place-items: center; background: rgba(255,210,122,.10); border: 3px dashed rgba(255,210,122,.7); opacity: 0; transition: opacity .15s; } #drop.show { opacity: 1; } #drop span { background: rgba(12,12,16,.9); color: #ffd27a; padding: 14px 22px; border-radius: 12px; font-size: 16px; font-weight: 600; }
+  #loading { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: #07070a; color: #9a9aa6; font-size: 15px; } #loading.hidden { display: none; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+</script>
+</head>
+<body>
+  <div id="app"></div><div id="vignette"></div><div id="crosshair"></div><div id="prompt"></div>
+  <div id="pausehint"><div class="big">Paused</div><div class="sm"><b>Click</b> to resume · use the <b>map</b> or <b>☰ menu</b> to travel</div></div>
+  <div id="roomlabel">—</div>
+  <canvas id="map" width="168" height="150"></canvas>
+  <div id="gtbar"><span>🎬 Guided tour</span><button id="gtStop">Stop tour</button></div>
+  <button id="menuBtn" title="Menu">☰</button>
+  <div id="menu">
+    <button class="close" id="menuClose">✕</button>
+    <h2>My <span class="accent">Museum</span></h2>
+    <div class="grp">
+      <div class="lbl">Add media</div>
+      <button class="item accent" data-act="add">＋ Add photos / videos</button>
+      <div class="lbl" style="margin-top:6px">Place them in</div>
+      <div class="seg" id="scopeSeg"><button data-scope="room">This room</button><button data-scope="all" class="on">Whole museum</button></div>
+      <div id="count">0 / 0 filled</div>
+    </div>
+    <div class="grp">
+      <div class="lbl">Explore</div>
+      <button class="item" data-act="overview">🗂 Overview of all rooms</button>
+      <button class="item" data-act="tour">🎬 Start guided tour</button>
+    </div>
+    <div class="grp">
+      <div class="lbl">Rooms &amp; halls — name, theme &amp; music</div>
+      <div id="wings"></div>
+      <div class="lbl" style="margin-top:2px;color:#6a6a76">Build more by facing a wall: <b style="color:#9a9aa6">left-click for a hall, right-click for a wing</b> (touch: USE / WING).</div>
+    </div>
+    <div class="grp">
+      <div class="lbl">Your gallery</div>
+      <button class="item" data-act="save">💾 Save to this browser</button>
+      <button class="item" data-act="share">🔗 Copy share link (layout)</button>
+      <button class="item" data-act="export">⤓ Export / share file (with media)</button>
+      <button class="item" data-act="import">⤒ Import a file</button>
+      <button class="item" data-act="reset">↺ Reset gallery</button>
+    </div>
+    <div class="grp">
+      <div class="lbl">Music</div>
+      <div class="musicrow"><label class="switch"><input type="checkbox" id="musicOn"><span></span></label><span>Background music</span></div>
+      <input type="range" id="musicVol" min="0" max="1" step="0.01" value="0.5">
+      <button class="item" data-act="loadmusic">♪ Default track for all rooms</button>
+    </div>
+    <div class="grp"><button class="item" data-act="exit">⤿ Exit to start screen</button></div>
+  </div>
+  <div id="overview"><div class="ohead"><h2>All <span class="accent">rooms</span></h2><button class="oclose" id="ovClose">Close ✕</button></div><div id="ogrid"></div></div>
+  <div id="touch"><div id="joy"><div id="knob"></div></div><button id="useBtn">USE</button><button id="wingBtn">＋ WING</button></div>
+  <div id="drop"><span>Drop photos &amp; videos to hang them</span></div>
+  <div id="overlay">
+    <div class="card">
+      <h1>My <span class="accent">Museum</span></h1>
+      <p class="sub">A private museum you walk through in first person. It starts as one room — hang your own photos &amp; videos, then grow it with picture-lined <b>halls</b> and gallery <b>wings</b>.</p>
+      <div class="controls desktoponly">
+        <div class="row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</div><div class="row"><kbd>Mouse</kbd> Look</div>
+        <div class="row"><kbd>Shift</kbd> Run</div><div class="row"><kbd>L-Click</kbd> Fill / build hall</div>
+        <div class="row"><kbd>R-Click</kbd> Build a wing</div><div class="row"><kbd>E</kbd> Play · <kbd>M</kbd> Mute</div>
+        <div class="row"><kbd>T</kbd> Title · <kbd>⌫</kbd> Clear</div><div class="row"><kbd>Esc</kbd> Pause &amp; free cursor</div>
+      </div>
+      <div class="controls touchonly" style="grid-template-columns:1fr">
+        <div class="row">🕹️ Left thumb to move · drag right side to look</div>
+        <div class="row">Tap <b style="color:#ffd27a">&nbsp;USE&nbsp;</b> to fill a frame or build a hall · <b style="color:#cfe0ff">＋WING</b> for a room</div>
+        <div class="row">☰ Menu for media, rooms, music &amp; saving</div>
+      </div>
+      <button id="start" class="btn primary">Enter the museum</button>
+      <button id="startAdd" class="btn ghost">＋ Add photos / videos first</button>
+      <p class="hint">Face any wall and click to extend a <b>hall</b> from that spot, or right-click for a <b>wing</b>. Pictures hang on both sides of every doorway.</p>
+    </div>
+  </div>
+  <div id="toast"></div>
+  <div id="loading">Building your museum…</div>
+  <input id="file" type="file" accept="image/*,video/*" multiple style="display:none" />
+  <input id="importFile" type="file" accept=".museum,application/json" style="display:none" />
+  <input id="musicFile" type="file" accept="audio/*" style="display:none" />
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+if (isTouch) document.body.classList.add('touch');
+const LITE = location.search.includes('lite');
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+/* ===== IndexedDB ===== */
+const DB = (() => { let dbp; const open = () => dbp || (dbp = new Promise((res, rej) => { const r = indexedDB.open('my-museum', 1); r.onupgradeneeded = () => r.result.createObjectStore('media', { keyPath: 'frame' }); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }));
+  const st = async (m) => (await open()).transaction('media', m).objectStore('media');
+  return { async put(rec) { const s = await st('readwrite'); return new Promise((ok, no) => { const q = s.put(rec); q.onsuccess = ok; q.onerror = () => no(q.error); }); },
+    async get(k) { const s = await st('readonly'); return new Promise((ok) => { const q = s.get(k); q.onsuccess = () => ok(q.result); q.onerror = () => ok(null); }); },
+    async del(k) { const s = await st('readwrite'); return new Promise((ok) => { s.delete(k).onsuccess = ok; }); },
+    async all() { const s = await st('readonly'); return new Promise((ok) => { const q = s.getAll(); q.onsuccess = () => ok(q.result || []); q.onerror = () => ok([]); }); }, };
+})();
+
+/* ===== Renderer / scene ===== */
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x06060a); scene.fog = new THREE.FogExp2(0x06060a, 0.016);
+const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 300); camera.rotation.order = 'YXZ'; camera.position.set(0, 1.7, 4.5);
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(LITE ? 0.5 : Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.04;
+document.getElementById('app').appendChild(renderer.domElement);
+const useBloom = !LITE && !isTouch && Math.min(innerWidth, innerHeight) > 600; let composer;
+if (useBloom) { composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera)); composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.32, 0.7, 0.9)); }
+scene.add(new THREE.HemisphereLight(0xc7d2ff, 0x14140f, 0.5)); scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+
+/* ===== Textures ===== */
+function mkTex(draw, rx, ry) { const c = document.createElement('canvas'); c.width = c.height = 512; draw(c.getContext('2d'), 512); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; }
+const floorGen = {
+  wood: () => mkTex((x, s) => { x.fillStyle = '#6b4a2b'; x.fillRect(0, 0, s, s); for (let i = 0; i < s; i += 64) { x.fillStyle = i / 64 % 2 ? '#6f4d2d' : '#624327'; x.fillRect(i, 0, 64, s); x.strokeStyle = 'rgba(0,0,0,.3)'; x.beginPath(); x.moveTo(i, 0); x.lineTo(i, s); x.stroke(); } for (let i = 0; i < 1200; i++) { x.fillStyle = `rgba(0,0,0,${Math.random() * .07})`; x.fillRect(Math.random() * s, Math.random() * s, 28, 1); } }, 1, 1),
+  marble: () => mkTex((x, s) => { x.fillStyle = '#e9e7e2'; x.fillRect(0, 0, s, s); for (let k = 0; k < 22; k++) { x.strokeStyle = `rgba(120,120,130,${Math.random() * .22})`; x.lineWidth = Math.random() * 2; x.beginPath(); let px = Math.random() * s; x.moveTo(px, 0); for (let py = 0; py < s; py += 20) { px += (Math.random() - .5) * 40; x.lineTo(px, py); } x.stroke(); } }, 1, 1),
+  dark: () => mkTex((x, s) => { x.fillStyle = '#14151c'; x.fillRect(0, 0, s, s); for (let i = 0; i < 5000; i++) { x.fillStyle = `rgba(120,140,200,${Math.random() * .04})`; x.fillRect(Math.random() * s, Math.random() * s, 2, 2); } }, 1, 1),
+  concrete: () => mkTex((x, s) => { x.fillStyle = '#3a3a3f'; x.fillRect(0, 0, s, s); for (let i = 0; i < 8000; i++) { const v = Math.random() * 36 - 18; x.fillStyle = `rgba(${128 + v},${128 + v},${133 + v},.05)`; x.fillRect(Math.random() * s, Math.random() * s, 2, 2); } }, 1, 1),
+};
+const floorCache = {}; const getFloor = (k) => floorCache[k] || (floorCache[k] = floorGen[k]());
+function floorTexFor(k, w, d) { const t = getFloor(k).clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / 3, d / 3); return t; }
+
+/* ===== Constants / styles ===== */
+const RW = 18, RD = 14, HALLW = 4.8, HALLLEN = 16, H = 5, DOORW = 3.2, DOORH = 3.0, T = 0.4;
+const STYLES = [
+  { id: 'classic',  name: 'Classic Hall', wall: 0xd8cdb6, floor: 'wood',     rough: .8,  metal: 0,  light: 0xffe6c0, li: 46, accent: 0xffcf95 },
+  { id: 'modern',   name: 'Modern White', wall: 0xe9e9ee, floor: 'marble',   rough: .35, metal: .1, light: 0xf2f5ff, li: 58, accent: 0xcfe0ff },
+  { id: 'garden',   name: 'The Garden',   wall: 0xaec5a4, floor: 'wood',     rough: .8,  metal: 0,  light: 0xeafff0, li: 50, accent: 0xb6f0c4 },
+  { id: 'midnight', name: 'Midnight',     wall: 0x252c41, floor: 'dark',     rough: .25, metal: .3, light: 0x9fb6ff, li: 38, accent: 0x7e9bff },
+  { id: 'rose',     name: 'Rose Gallery', wall: 0xe7c9c9, floor: 'marble',   rough: .4,  metal: .1, light: 0xffe9ec, li: 52, accent: 0xffc6cf },
+  { id: 'slate',    name: 'Slate Loft',   wall: 0x6f7480, floor: 'concrete', rough: .7,  metal: .1, light: 0xeef2ff, li: 50, accent: 0xaebbd0 },
+];
+const styleById = (id) => STYLES.find(s => s.id === id) || STYLES[0];
+const SIDES = ['N', 'S', 'E', 'W'], OPP = { N: 'S', S: 'N', E: 'W', W: 'E' };
+const spaces = new Map(); const connections = []; let nextId = 0;
+const YAWFOR = { N: 0, S: Math.PI, E: -Math.PI / 2, W: Math.PI / 2 };
+
+/* ===== collider-aware box ===== */
+const colliders = [];
+function box(cx, cy, cz, sx, sy, sz, mat, solid = true) { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat); m.position.set(cx, cy, cz); scene.add(m); if (solid) { const b = new THREE.Box3().setFromObject(m); m.userData.collider = b; colliders.push(b); } return m; }
+function removeBox(m) { if (!m) return; scene.remove(m); const b = m.userData.collider; if (b) { const i = colliders.indexOf(b); if (i >= 0) colliders.splice(i, 1); } m.geometry?.dispose?.(); }
+const baseMat = new THREE.MeshStandardMaterial({ color: 0x201f1d, roughness: .85 });
+const stripMat = new THREE.MeshStandardMaterial({ color: 0xfff4dc, emissive: 0xfff0d0, emissiveIntensity: 1.1 });
+const doorTrimMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: .7, metalness: .2 });
+const frameMat = new THREE.MeshStandardMaterial({ color: 0xb98a3e, roughness: .35, metalness: .85 });
+const matteMat = new THREE.MeshStandardMaterial({ color: 0xf4f0e6, roughness: 1 });
+const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: .22 });
+const ceilMat = new THREE.MeshStandardMaterial({ color: 0x101018, roughness: 1 });
+
+/* ===== sign + frame helpers ===== */
+function hex(c) { return '#' + (c >>> 0).toString(16).padStart(6, '0').slice(-6); }
+function makeSignTex(label, accent) { const c = document.createElement('canvas'); c.width = 1024; c.height = 256; const x = c.getContext('2d'); x.clearRect(0, 0, 1024, 256); x.font = '600 92px Georgia, serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = hex(accent); x.fillText((label || 'Room').toUpperCase(), 512, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
+function placeholderTex() { const c = document.createElement('canvas'); c.width = 512; c.height = 384; const x = c.getContext('2d'); x.fillStyle = '#3b3b45'; x.fillRect(0, 0, 512, 384); x.strokeStyle = '#5c5c6a'; x.lineWidth = 4; x.setLineDash([14, 12]); x.strokeRect(22, 22, 468, 340); x.setLineDash([]); x.textAlign = 'center'; x.fillStyle = '#8e8e9c'; x.font = '600 30px system-ui'; x.fillText('Empty frame', 256, 180); x.font = '20px system-ui'; x.fillStyle = '#74747f'; x.fillText('add a photo or video', 256, 218); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
+function makePlate() { const c = document.createElement('canvas'); c.width = 512; c.height = 110; const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return { canvas: c, ctx: c.getContext('2d'), tex: tx }; }
+function roundRect(x, a, b, w, h, r) { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); }
+function drawPlate(f) { const x = f.plate.ctx; x.clearRect(0, 0, 512, 110); if (!f.filled && !f.title) { f.plateMesh.visible = false; f.plate.tex.needsUpdate = true; return; } f.plateMesh.visible = true; x.fillStyle = '#ece6d8'; roundRect(x, 6, 6, 500, 98, 12); x.fill(); x.strokeStyle = '#c9c0ac'; x.lineWidth = 2; x.stroke(); x.fillStyle = '#2a2a2a'; x.textAlign = 'center'; x.font = f.title ? '600 40px Georgia, serif' : 'italic 30px Georgia, serif'; x.fillText(f.title || 'Untitled', 256, 60); f.plate.tex.needsUpdate = true; }
+
+const loader = new THREE.TextureLoader(); const frames = []; const frameById = new Map();
+function addFrame(id, x, y, z, ry) {
+  const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; scene.add(g);
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), shadowMat); shadow.position.set(0.04, -0.04, -0.02); g.add(shadow);
+  const border = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), frameMat); border.position.z = 0.005; g.add(border);
+  const matte = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), matteMat); matte.position.z = 0.012; g.add(matte);
+  const mat = new THREE.MeshBasicMaterial({ map: placeholderTex() }); const art = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat); art.position.z = 0.02; g.add(art);
+  const plate = makePlate(); const plateMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.18), new THREE.MeshBasicMaterial({ map: plate.tex, transparent: true })); plateMesh.position.z = 0.02; g.add(plateMesh);
+  const lightbar = new THREE.Mesh(new THREE.BoxGeometry(1, 0.05, 0.14), new THREE.MeshStandardMaterial({ color: 0xfff4e0, emissive: 0xfff0d0, emissiveIntensity: 0.55 })); g.add(lightbar);
+  const f = { id, group: g, art, border, matte, mat, plate, plateMesh, lightbar, shadow, video: null, srcURL: null, title: '', filled: false };
+  frames.push(f); frameById.set(id, f); sizeFrame(f, 1.7, 1.2); drawPlate(f); return f;
+}
+function sizeFrame(f, w, h) { const s = Math.min(2.8 / w, 2.0 / h, 1.7); w *= s; h *= s; f.art.scale.set(w, h, 1); f.matte.scale.set(w + 0.14, h + 0.14, 1); f.border.scale.set(w + 0.32, h + 0.32, 1); f.shadow.scale.set(w + 0.32, h + 0.32, 1); f.lightbar.position.set(0, h / 2 + 0.28, 0.16); f.lightbar.scale.x = w * 0.7; f.plateMesh.position.y = -(h / 2 + 0.30); f.plateMesh.scale.x = Math.min(Math.max(w * 0.65, 0.5), 1.4); }
+function fitAspect(f, a) { let h = 1.4, w = h * a; if (w > 2.8) { w = 2.8; h = w / a; } if (h > 2.0) { h = 2.0; w = h * a; } sizeFrame(f, w, h); }
+function removeFrame(f) { if (f.video) { f.video.pause(); f.video.src = ''; } scene.remove(f.group); const i = frames.indexOf(f); if (i >= 0) frames.splice(i, 1); frameById.delete(f.id); DB.del(f.id); }
+
+/* ===== spaces, walls, doorways ===== */
+const wallMeshes = [];
+function buildSpaceBase(s) {
+  const st = styleById(s.styleId); const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, w = s.x1 - s.x0, d = s.z1 - s.z0;
+  s.cx = cx; s.cz = cz; s.wallMat = new THREE.MeshStandardMaterial({ color: st.wall, roughness: .95 });
+  s.floorMat = new THREE.MeshStandardMaterial({ map: floorTexFor(st.floor, w, d), roughness: st.rough, metalness: st.metal });
+  const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), s.floorMat); fl.rotation.x = -Math.PI / 2; fl.position.set(cx, 0, cz); scene.add(fl); s.floor = fl;
+  box(cx, H, cz, w, 0.3, d, ceilMat, false);
+  const long = Math.max(w, d); box(cx, H - 0.18, cz, w >= d ? long * .8 : 0.6, 0.12, w >= d ? 0.6 : long * .8, stripMat, false);
+  s.point = new THREE.PointLight(st.light, st.li, 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
+  s.spots = []; if (!LITE && s.type === 'room') for (const a of [['z', -1], ['z', 1], ['x', -1], ['x', 1]]) { const sp = new THREE.SpotLight(st.light, 9, 15, 0.7, 0.6, 1.2); sp.position.set(cx + (a[0] === 'x' ? a[1] * 2.2 : 0), H - 0.4, cz + (a[0] === 'z' ? a[1] * 2.2 : 0)); sp.target.position.set(cx + (a[0] === 'x' ? a[1] * w / 2 : 0), 1.7, cz + (a[0] === 'z' ? a[1] * d / 2 : 0)); scene.add(sp, sp.target); s.spots.push(sp); }
+  s.signMesh = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(6, w - 1), 1.4), new THREE.MeshBasicMaterial({ map: makeSignTex(s.name, st.accent), transparent: true })); s.signMesh.position.set(cx, 4.0, s.z0 + 0.06); scene.add(s.signMesh);
+  s.stars = new THREE.Group(); const sm = new THREE.MeshBasicMaterial({ color: 0xbcd0ff }); for (let i = 0; i < 26; i++) { const stt = new THREE.Mesh(new THREE.SphereGeometry(0.03 + Math.random() * 0.03, 6, 6), sm); stt.position.set(cx + (Math.random() - .5) * w * .9, H - 0.25, cz + (Math.random() - .5) * d * .9); s.stars.add(stt); } scene.add(s.stars); s.stars.visible = st.floor === 'dark';
+  s.sides = { N: [], S: [], E: [], W: [] }; s.walls = { N: [], S: [], E: [], W: [] }; s.frames = { N: [], S: [], E: [], W: [] };
+}
+function wallSeg(s, side, a, b) { // solid wall segment + frames; a..b along the side's axis
+  const mat = s.wallMat; let mesh;
+  if (side === 'N') mesh = box((a + b) / 2, H / 2, s.z0, b - a, H, T, mat); else if (side === 'S') mesh = box((a + b) / 2, H / 2, s.z1, b - a, H, T, mat);
+  else if (side === 'E') mesh = box(s.x1, H / 2, (a + b) / 2, T, H, b - a, mat); else mesh = box(s.x0, H / 2, (a + b) / 2, T, H, b - a, mat);
+  mesh.userData.add = { id: s.id, side }; wallMeshes.push(mesh); s.walls[side].push(mesh);
+  // baseboard
+  const inSign = (side === 'N' || side === 'W') ? 1 : -1; const bb = (side === 'N' || side === 'S') ? box((a + b) / 2, 0.12, (side === 'N' ? s.z0 : s.z1) + inSign * (T / 2 + 0.03), b - a, 0.24, 0.06, baseMat, false) : box((side === 'E' ? s.x1 : s.x0) + inSign * (T / 2 + 0.03), 0.12, (a + b) / 2, 0.06, 0.24, b - a, baseMat, false); mesh.userData.bb = bb;
+  // frames along segment
+  const len = b - a, margin = 0.7, usable = len - 2 * margin; if (usable < 1.3) return;
+  const n = Math.max(1, Math.floor(usable / 4.2));
+  for (let k = 0; k < n; k++) { const u = a + margin + usable * (k + 0.5) / n; let x, y = 1.75, z, ry;
+    if (side === 'N') { x = u; z = s.z0 + T / 2 + 0.04; ry = 0; } else if (side === 'S') { x = u; z = s.z1 - T / 2 - 0.04; ry = Math.PI; }
+    else if (side === 'E') { x = s.x1 - T / 2 - 0.04; z = u; ry = -Math.PI / 2; } else { x = s.x0 + T / 2 + 0.04; z = u; ry = Math.PI / 2; }
+    s.frames[side].push(addFrame(`${s.id}:${side}:${k}_${Math.round(u * 10)}`, x, y, z, ry)); }
+}
+function buildWallSide(s, side) {
+  const axisIsX = (side === 'N' || side === 'S'); const lo = axisIsX ? s.x0 : s.z0, hi = axisIsX ? s.x1 : s.z1;
+  const ops = s.sides[side].slice().sort((p, q) => p[0] - q[0]); let cur = lo;
+  for (const [a, b] of ops) { if (a > cur + 0.05) wallSeg(s, side, cur, a); cur = Math.max(cur, b); }
+  if (cur < hi - 0.05) wallSeg(s, side, cur, hi);
+}
+function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
+function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
+function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
+  if (side === 'N' || side === 'S') { const z = side === 'N' ? s.z0 : s.z1; box((lo + hi) / 2, (DOORH + H) / 2, z, hi - lo, H - DOORH, T, mat, false); box(lo, DOORH / 2, z, 0.14, DOORH, 0.5, doorTrimMat, false); box(hi, DOORH / 2, z, 0.14, DOORH, 0.5, doorTrimMat, false); }
+  else { const x = side === 'E' ? s.x1 : s.x0; box(x, (DOORH + H) / 2, (lo + hi) / 2, T, H - DOORH, hi - lo, mat, false); box(x, DOORH / 2, lo, 0.5, DOORH, 0.14, doorTrimMat, false); box(x, DOORH / 2, hi, 0.5, DOORH, 0.14, doorTrimMat, false); }
+}
+function applyTheme(s, save = true) { const st = styleById(s.styleId); s.wallMat.color.set(st.wall); s.floorMat.map = floorTexFor(st.floor, s.x1 - s.x0, s.z1 - s.z0); s.floorMat.roughness = st.rough; s.floorMat.metalness = st.metal; s.floorMat.needsUpdate = true; s.point.color.set(st.light); s.point.intensity = st.li; s.spots.forEach(sp => sp.color.set(st.light)); s.stars.visible = st.floor === 'dark'; s.signMesh.material.map = makeSignTex(s.name, st.accent); s.signMesh.material.needsUpdate = true; if (s.id === lastId) document.getElementById('roomlabel').textContent = s.name; if (save) saveConfig(); }
+function overlaps(x0, x1, z0, z1) { const e = 0.4; for (const s of spaces.values()) if (x0 < s.x1 - e && x1 > s.x0 + e && z0 < s.z1 - e && z1 > s.z0 + e) return true; return false; }
+
+function buildSpaceFrom(type, parent, side, uHit) {
+  const isX = (side === 'N' || side === 'S'); const W = type === 'hall' ? HALLW : RW, L = type === 'hall' ? HALLLEN : RD; const half = type === 'hall' ? HALLW / 2 : DOORW / 2;
+  const [lo, hi] = isX ? [parent.x0, parent.x1] : [parent.z0, parent.z1];
+  const u = clamp(uHit, lo + half + 0.4, hi - half - 0.4);
+  let x0, x1, z0, z1;
+  if (side === 'N') { z1 = parent.z0; z0 = parent.z0 - L; x0 = u - W / 2; x1 = u + W / 2; }
+  else if (side === 'S') { z0 = parent.z1; z1 = parent.z1 + L; x0 = u - W / 2; x1 = u + W / 2; }
+  else if (side === 'E') { x0 = parent.x1; x1 = parent.x1 + L; z0 = u - W / 2; z1 = u + W / 2; }
+  else { x1 = parent.x0; x0 = parent.x0 - L; z0 = u - W / 2; z1 = u + W / 2; }
+  if (overlaps(x0, x1, z0, z1)) { toast('No room to build there — try another wall or spot'); return; }
+  GT.stop();
+  const cnt = [...spaces.values()].filter(s => s.type === type).length + 1; const name = (type === 'hall' ? 'Hall ' : 'Wing ') + cnt;
+  const s = { id: 's' + (nextId++), type, name, styleId: STYLES[spaces.size % STYLES.length].id, x0, x1, z0, z1 };
+  spaces.set(s.id, s); buildSpaceBase(s);
+  const [olo, ohi] = [u - half, u + half];
+  parent.sides[side].push([olo, ohi]); rebuildWallSide(parent, side);
+  s.sides[OPP[side]].push([olo, ohi]);
+  for (const sd of SIDES) buildWallSide(s, sd);
+  buildDoorway(parent, side, olo, ohi);
+  connections.push({ a: parent.id, side, lo: olo, hi: ohi });
+  applyTheme(s, false); saveConfig(); buildWingEditor(); updateCount();
+  toast('New ' + type + ' built — walk through the opening');
+}
+
+/* ===== media ===== */
+function applyImage(f, url) { loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (f.video) { f.video.pause(); f.video = null; } f.mat.map = t; f.mat.needsUpdate = true; fitAspect(f, t.image.width / t.image.height); f.filled = true; f.srcURL = url; drawPlate(f); updateCount(); }); }
+function applyVideo(f, url) { const v = document.createElement('video'); v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play().catch(() => {}); const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; f.mat.map = t; f.mat.needsUpdate = true; f.video = v; f.srcURL = url; v.addEventListener('loadedmetadata', () => fitAspect(f, (v.videoWidth || 16) / (v.videoHeight || 9))); f.filled = true; drawPlate(f); updateCount(); }
+async function assignFile(f, file) { const url = URL.createObjectURL(file); const isVid = file.type.startsWith('video'); isVid ? applyVideo(f, url) : applyImage(f, url); try { await DB.put({ frame: f.id, type: isVid ? 'video' : 'image', blob: file, title: f.title }); } catch { toast('Storage full — shown this session only'); } }
+function clearFrame(f) { if (f.video) { f.video.pause(); f.video.src = ''; f.video = null; } f.mat.map = placeholderTex(); f.mat.needsUpdate = true; sizeFrame(f, 1.7, 1.2); f.filled = false; f.title = ''; f.srcURL = null; drawPlate(f); DB.del(f.id); updateCount(); }
+const updateCount = () => document.getElementById('count').textContent = `${frames.filter(f => f.filled).length} / ${frames.length} filled`;
+function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
+function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
+const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, styleId: s.styleId, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 })), connections, nextId } });
+
+/* ===== sample art ===== */
+function drawSample(g, w, h, k) { const pals = [['#ff9a4d', '#ffd86b'], ['#4d79ff', '#9b6bff'], ['#0f2027', '#2c5364'], ['#34d399', '#a7f3d0'], ['#f472b6', '#c084fc'], ['#0ea5e9', '#2dd4bf']][k % 6]; const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, pals[0]); grad.addColorStop(1, pals[1]); g.fillStyle = grad; g.fillRect(0, 0, w, h); g.globalAlpha = .18; for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#000000'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, 0, 7); g.fill(); } g.globalAlpha = 1; if (k === 5) { g.fillStyle = 'rgba(0,0,0,.32)'; g.fillRect(w * .12, h * .34, w * .76, h * .32); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 60px Georgia, serif'; g.fillText('Your Museum', w / 2, h * .47); g.font = '400 26px system-ui'; g.fillText('face a wall & click to build', w / 2, h * .57); } else { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 8; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, Math.random() * h); g.bezierCurveTo(w * .3, Math.random() * h, w * .6, Math.random() * h, w, Math.random() * h); g.stroke(); } } }
+function makeSampleBlob(k) { return new Promise((res) => { const c = document.createElement('canvas'); c.width = 900; c.height = 620; drawSample(c.getContext('2d'), 900, 620, k); c.toBlob(b => res(b), 'image/jpeg', 0.9); }); }
+async function addSamples() { const s = spaces.values().next().value; const fl = spaceFramesList(s).slice(0, 6); const titles = ['Sunrise', 'Aurora', 'Deep Sea', 'Meadow', 'Bloom', 'Your Museum']; for (let k = 0; k < fl.length; k++) { const blob = await makeSampleBlob(k); fl[k].title = titles[k]; await assignFile(fl[k], new File([blob], 'sample' + k + '.jpg', { type: 'image/jpeg' })); drawPlate(fl[k]); } }
+
+/* ===== controls / state ===== */
+let inTour = false, paused = false, started = false, exiting = false, yaw = 0, pitch = 0;
+const keys = {}; const canvas = renderer.domElement;
+function enterTour() { started = true; overlay.classList.add('hidden'); closeMenu(); paused = false; document.body.classList.remove('paused'); if (!isTouch) canvas.requestPointerLock?.(); else { inTour = true; document.body.classList.add('tour'); } Music.onEnter(); }
+function resume() { if (!isTouch) canvas.requestPointerLock?.(); }
+function exitTour() { GT.stop(); exiting = true; inTour = false; paused = false; document.body.classList.remove('tour', 'paused'); if (document.pointerLockElement) document.exitPointerLock(); overlay.classList.remove('hidden'); }
+document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement === canvas) { inTour = true; paused = false; document.body.classList.add('tour'); document.body.classList.remove('paused'); overlay.classList.add('hidden'); } else { inTour = false; if (exiting) { exiting = false; document.body.classList.remove('tour', 'paused'); } else if (started) { paused = true; document.body.classList.add('tour', 'paused'); } } });
+document.addEventListener('mousemove', (e) => { if (document.pointerLockElement !== canvas) return; if (GT.active) GT.stop(); yaw -= e.movementX * 0.0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * 0.0022)); });
+addEventListener('keydown', (e) => { keys[e.code] = true; if (e.code === 'Escape') return; if (!inTour) return; if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code) && GT.active) GT.stop(); if (e.code === 'KeyE') toggleVideo(); if (e.code === 'KeyM') toggleMute(); if (e.code === 'KeyT') titleFrame(); if (e.code === 'Backspace' && lookingAt) { clearFrame(lookingAt); toast('Frame cleared'); } });
+addEventListener('keyup', (e) => keys[e.code] = false);
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+canvas.addEventListener('mousedown', (e) => { if (document.pointerLockElement === canvas) { if (e.button === 2) buildAtWall('wing'); else interact(); } else if (paused) resume(); });
+/* touch */
+const joyEl = document.getElementById('joy'), knob = document.getElementById('knob'); let joyId = null, joyX = 0, joyY = 0; const joyR = 55; let lookId = null, lastLX = 0, lastLY = 0;
+const joyCenter = () => { const r = joyEl.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+addEventListener('touchstart', (e) => { if (!inTour) return; for (const t of e.changedTouches) { const c = joyCenter(); if (joyId === null && Math.hypot(t.clientX - c.x, t.clientY - c.y) < 110) { joyId = t.identifier; updJoy(t, c); if (GT.active) GT.stop(); } else if (lookId === null) { lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
+addEventListener('touchmove', (e) => { for (const t of e.changedTouches) { if (t.identifier === joyId) { e.preventDefault(); updJoy(t, joyCenter()); } else if (t.identifier === lookId) { if (GT.active) GT.stop(); yaw -= (t.clientX - lastLX) * 0.005; pitch = Math.max(-1.45, Math.min(1.45, pitch - (t.clientY - lastLY) * 0.005)); lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
+function endTouch(e) { for (const t of e.changedTouches) { if (t.identifier === joyId) { joyId = null; joyX = joyY = 0; knob.style.transform = 'translate(0,0)'; } if (t.identifier === lookId) lookId = null; } }
+addEventListener('touchend', endTouch); addEventListener('touchcancel', endTouch);
+function updJoy(t, c) { let dx = t.clientX - c.x, dy = t.clientY - c.y; const d = Math.hypot(dx, dy); if (d > joyR) { dx *= joyR / d; dy *= joyR / d; } knob.style.transform = `translate(${dx}px,${dy}px)`; joyX = dx / joyR; joyY = dy / joyR; }
+document.getElementById('useBtn').addEventListener('click', interact);
+document.getElementById('wingBtn').addEventListener('click', () => buildAtWall('wing'));
+
+/* ===== look + interact ===== */
+const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null;
+const promptEl = document.getElementById('prompt'), crossEl = document.getElementById('crosshair');
+function updateLook() {
+  raycaster.setFromCamera({ x: 0, y: 0 }, camera); const arts = frames.map(f => f.art); const objs = [...arts, ...wallMeshes];
+  const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null;
+  if (hit) { const ai = arts.indexOf(hit.object); if (ai >= 0 && hit.distance < 6.5) lookingAt = frames[ai]; else if (hit.object.userData.add && hit.distance < 5.5) { const ad = hit.object.userData.add; const u = (ad.side === 'N' || ad.side === 'S') ? hit.point.x : hit.point.z; lookingWall = { id: ad.id, side: ad.side, u }; } }
+  if (inTour && !GT.active && lookingAt) { crossEl.classList.add('active'); if (!lookingAt.filled) showPrompt('<b>' + (isTouch ? 'USE' : 'Click') + '</b> to hang a photo or video'); else if (lookingAt.video) showPrompt(isTouch ? '<b>USE</b> play / pause' : '<b>E</b> play/pause · <b>M</b> mute · <b>T</b> title · <b>⌫</b> clear'); else showPrompt(isTouch ? 'Filled' : '<b>T</b> title · <b>⌫</b> clear'); }
+  else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> build hall · <b>＋WING</b> build room' : '<b>L-click</b> build a hall · <b>R-click</b> build a wing'); }
+  else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
+}
+const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
+function interact() { if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else if (f.video) toggleVideo(); } else if (lookingWall) buildAtWall('hall'); }
+function buildAtWall(type) { if (!lookingWall) return; const p = spaces.get(lookingWall.id); if (p) buildSpaceFrom(type, p, lookingWall.side, lookingWall.u); }
+const toggleVideo = () => { const f = lookingAt; if (f?.video) f.video.paused ? f.video.play() : f.video.pause(); };
+const toggleMute = () => { const f = lookingAt; if (f?.video) { f.video.muted = !f.video.muted; toast(f.video.muted ? 'Muted' : 'Sound on'); } };
+function titleFrame() { const f = lookingAt; if (!f) return; const wasLocked = document.pointerLockElement === canvas; if (wasLocked) document.exitPointerLock(); setTimeout(async () => { const t = prompt('Title for this frame:', f.title || ''); if (t !== null) { f.title = t.trim(); drawPlate(f); const rec = await DB.get(f.id); if (rec) { rec.title = f.title; DB.put(rec); } } if (wasLocked && !isTouch) canvas.requestPointerLock?.(); }, 60); }
+
+/* ===== file input + drop ===== */
+const fileInput = document.getElementById('file'); let addTarget = null, addScope = 'all';
+fileInput.addEventListener('change', async () => { const files = [...fileInput.files]; fileInput.value = ''; if (!files.length) return; let f = addTarget || nextEmpty(addScope); addTarget = null; let n = 0; for (const file of files) { if (!f) { toast(addScope === 'room' ? 'This room is full — build more or switch scope' : 'All frames full — build a hall or wing'); break; } await assignFile(f, file); n++; f = nextEmpty(addScope); } if (n) toast(`Hung ${n} item${n > 1 ? 's' : ''}` + (addScope === 'room' ? ' here' : '')); });
+const dropEl = document.getElementById('drop'); let dragDepth = 0;
+addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; dropEl.classList.add('show'); });
+addEventListener('dragover', (e) => e.preventDefault());
+addEventListener('dragleave', (e) => { e.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; dropEl.classList.remove('show'); } });
+addEventListener('drop', async (e) => { e.preventDefault(); dragDepth = 0; dropEl.classList.remove('show'); const files = [...e.dataTransfer.files].filter(f => /^(image|video)\//.test(f.type)); if (!files.length) return; let f = (inTour && lookingAt && !lookingAt.filled) ? lookingAt : nextEmpty(addScope); let n = 0; for (const file of files) { if (!f) break; await assignFile(f, file); n++; f = nextEmpty(addScope); } toast(`Hung ${n} item${n > 1 ? 's' : ''}`); });
+
+/* ===== export / import / save / share ===== */
+const blobToDataURL = (b) => new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(b); });
+async function exportGallery() { toast('Packing your museum…'); const recs = await DB.all(); const out = []; for (const r of recs) { if (r.blob) out.push({ frame: r.frame, type: r.type, title: r.title || '', mime: r.blob.type, data: await blobToDataURL(r.blob) }); else out.push({ frame: r.frame, config: r.config }); } const json = JSON.stringify({ app: 'my-museum', version: 5, records: out }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = 'my-museum.museum'; a.click(); toast(`Exported ${out.length} item${out.length !== 1 ? 's' : ''} (incl. media + music)`); }
+document.getElementById('importFile').addEventListener('change', async (e) => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; try { const data = JSON.parse(await file.text()); const recs = data.records || data.items; if (!recs) throw 0; toast('Importing…'); for (const it of recs) { if (it.config) { await DB.put({ frame: it.frame, config: it.config }); continue; } const blob = await (await fetch(it.data)).blob(); await DB.put({ frame: it.frame, type: it.type, blob, title: it.title || '' }); } location.hash = ''; setTimeout(() => location.reload(), 400); } catch { toast('Could not read that file'); } });
+async function saveGallery() { for (const f of frames) if (f.filled) { const rec = await DB.get(f.id); if (rec) { rec.title = f.title; await DB.put(rec); } } await saveConfig(); toast('Saved to this browser'); }
+function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.styleId, s.x0, s.x1, s.z0, s.z1]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]) }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
+function readShare() { const m = location.hash.match(/m=([^&]+)/); if (!m) return null; try { return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); } catch { return null; } }
+
+/* ===== music ===== */
+const Music = {
+  ctx: null, master: null, on: false, vol: 0.5, started: false, tracks: { global: null }, chords: [[0, 4, 7, 11], [2, 5, 9, 12], [-3, 0, 4, 9], [-1, 4, 7, 11]], ci: 0, osc: [], cur: null,
+  ensure() { if (!this.ctx) { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.master = this.ctx.createGain(); this.master.gain.value = 0; this.master.connect(this.ctx.destination); } this.ctx.resume?.(); },
+  freq(s) { return 220 * Math.pow(2, s / 12); },
+  startPad() { if (this.started) return; this.ensure(); this.started = true; const filt = this.ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = 850; filt.connect(this.master); const lfo = this.ctx.createOscillator(), lg = this.ctx.createGain(); lfo.frequency.value = 0.07; lg.gain.value = 260; lfo.connect(lg); lg.connect(filt.frequency); lfo.start(); for (let v = 0; v < 4; v++) { const o = this.ctx.createOscillator(); o.type = v === 0 ? 'sine' : 'triangle'; const g = this.ctx.createGain(); g.gain.value = v === 0 ? 0.14 : 0.07; o.detune.value = (v - 1.5) * 6; o.connect(g); g.connect(filt); o.start(); this.osc.push(o); } this.setChord(0); setInterval(() => { this.ci = (this.ci + 1) % this.chords.length; this.setChord(this.ci); }, 11000); },
+  setChord(i) { const ch = this.chords[i], t = this.ctx.currentTime; this.osc.forEach((o, v) => o.frequency.setTargetAtTime(this.freq(ch[v % ch.length]), t, 2.5)); },
+  fade(a, to, dur = 0.8) { if (!a) return; const from = a.volume, t0 = performance.now(); if (to > 0 && a.paused) a.play().catch(() => {}); const step = () => { const k = Math.min(1, (performance.now() - t0) / (dur * 1000)); a.volume = Math.max(0, Math.min(1, from + (to - from) * k)); if (k < 1) requestAnimationFrame(step); else if (to === 0) a.pause(); }; step(); },
+  resolve() { if (!this.on) { Object.values(this.tracks).forEach(a => a && this.fade(a, 0)); if (this.master) this.master.gain.setTargetAtTime(0, this.ctx.currentTime, 0.4); return; } const r = currentId(); const src = (r && this.tracks[r]) || this.tracks.global || null; Object.values(this.tracks).forEach(a => { if (a && a !== src) this.fade(a, 0); }); if (src) { this.cur = src; this.fade(src, this.vol); if (this.master) this.master.gain.setTargetAtTime(0, this.ctx.currentTime, 0.4); } else { this.cur = null; if (!this.started) this.startPad(); if (this.master) this.master.gain.setTargetAtTime(this.vol * 0.2, this.ctx.currentTime, 0.6); } },
+  onEnter() { if (this.on) { this.ensure(); this.resolve(); } }, setOn(v) { this.on = v; this.ensure(); this.resolve(); }, setVol(v) { this.vol = v; if (this.cur) this.cur.volume = v; this.resolve(); },
+  mkAudio(url) { const a = new Audio(url); a.loop = true; a.volume = 0; return a; },
+  loadRecord(r) { const key = r.frame === 'music:global' ? 'global' : r.frame.slice('music:'.length); this.tracks[key] = this.mkAudio(URL.createObjectURL(r.blob)); },
+  async setTrack(scope, file) { const key = scope === 'global' ? 'music:global' : 'music:' + scope; if (this.tracks[scope]) this.tracks[scope].pause(); this.tracks[scope] = this.mkAudio(URL.createObjectURL(file)); this.on = true; document.getElementById('musicOn').checked = true; await DB.put({ frame: key, type: 'audio', blob: file }); this.ensure(); this.resolve(); buildWingEditor(); toast(scope === 'global' ? 'Default track set' : 'Track set for ' + (spaces.get(scope)?.name || 'room')); },
+  async clearTrack(scope) { const key = scope === 'global' ? 'music:global' : 'music:' + scope; if (this.tracks[scope]) this.tracks[scope].pause(); this.tracks[scope] = null; await DB.del(key); this.resolve(); buildWingEditor(); toast('Reverted to default music'); },
+};
+
+/* ===== menu / editors / overview ===== */
+const overlay = document.getElementById('overlay'), menu = document.getElementById('menu');
+const openMenu = () => menu.classList.add('open'); const closeMenu = () => menu.classList.remove('open');
+document.getElementById('menuBtn').onclick = () => menu.classList.toggle('open');
+document.getElementById('menuClose').onclick = closeMenu;
+document.getElementById('start').onclick = enterTour;
+document.getElementById('startAdd').onclick = () => { addTarget = null; fileInput.click(); };
+document.querySelectorAll('#scopeSeg button').forEach(b => b.onclick = () => { addScope = b.dataset.scope; document.querySelectorAll('#scopeSeg button').forEach(x => x.classList.toggle('on', x === b)); });
+let musicScope = 'global';
+menu.querySelectorAll('button[data-act]').forEach(b => b.onclick = () => { const a = b.dataset.act;
+  if (a === 'add') { addTarget = null; fileInput.click(); } else if (a === 'save') saveGallery(); else if (a === 'share') shareLink(); else if (a === 'export') exportGallery(); else if (a === 'import') document.getElementById('importFile').click();
+  else if (a === 'overview') openOverview();
+  else if (a === 'loadmusic') { musicScope = 'global'; document.getElementById('musicFile').click(); }
+  else if (a === 'reset') { if (confirm('Remove all media and reset every frame? (rooms, themes & names are kept)')) DB.all().then(rs => Promise.all(rs.filter(r => typeof r.frame === 'string' && r.frame.includes(':')).map(r => DB.del(r.frame))).then(() => { frames.forEach(clearFrame); toast('Gallery reset'); })); }
+  else if (a === 'tour') { closeMenu(); if (!started) enterTour(); GT.start(); }
+  else if (a === 'exit') { closeMenu(); exitTour(); } });
+document.getElementById('musicOn').addEventListener('change', (e) => Music.setOn(e.target.checked));
+document.getElementById('musicVol').addEventListener('input', (e) => Music.setVol(+e.target.value));
+document.getElementById('musicFile').addEventListener('change', (e) => { if (e.target.files[0]) Music.setTrack(musicScope, e.target.files[0]); e.target.value = ''; });
+
+function sortedSpaces() { return [...spaces.values()].sort((a, b) => a.cz - b.cz || a.cx - b.cx); }
+function buildWingEditor() {
+  const host = document.getElementById('wings'); host.innerHTML = '';
+  sortedSpaces().forEach((s) => { const opts = STYLES.map(o => `<option value="${o.id}"${o.id === s.styleId ? ' selected' : ''}>${o.name}</option>`).join(''); const hasMusic = !!Music.tracks[s.id];
+    const el = document.createElement('div'); el.className = 'wing';
+    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"></div><select class="wstyle">${opts}</select><div class="wbtns"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div>`;
+    el.querySelector('.wname').onchange = (ev) => { s.name = ev.target.value.trim() || s.type; applyTheme(s); };
+    el.querySelector('.wstyle').onchange = (ev) => { s.styleId = ev.target.value; applyTheme(s); };
+    el.querySelector('[data-go]').onclick = () => { if (!started) enterTour(); teleport(s.id); closeMenu(); };
+    el.querySelector('[data-mus]').onclick = () => { musicScope = s.id; document.getElementById('musicFile').click(); };
+    el.querySelector('[data-musx]')?.addEventListener('click', () => Music.clearTrack(s.id));
+    host.appendChild(el); });
+}
+function openOverview() {
+  const grid = document.getElementById('ogrid'); grid.innerHTML = '';
+  sortedSpaces().forEach((s) => { const st = styleById(s.styleId); const rf = spaceFramesList(s); const filled = rf.filter(f => f.filled);
+    const thumbs = []; for (let i = 0; i < 3; i++) { const f = filled[i]; if (f && f.srcURL && !f.video) thumbs.push(`<div style="background-image:url('${f.srcURL}')"></div>`); else if (f && f.video) thumbs.push('<div>🎬</div>'); else thumbs.push('<div>·</div>'); }
+    const card = document.createElement('div'); card.className = 'ocard';
+    card.innerHTML = `<div class="obar" style="background:${hex(st.accent)}"></div><div class="obody"><div class="otitle">${s.name}<span class="ochip">${s.type}</span></div><div class="ometa">${st.name} · ${filled.length}/${rf.length} filled</div><div class="othumbs">${thumbs.join('')}</div></div>`;
+    card.onclick = () => { document.getElementById('overview').classList.remove('open'); if (!started) enterTour(); teleport(s.id); };
+    grid.appendChild(card); });
+  document.getElementById('overview').classList.add('open');
+}
+document.getElementById('ovClose').onclick = () => document.getElementById('overview').classList.remove('open');
+function teleport(id) { GT.stop(); const s = spaces.get(id); if (!s) return; camera.position.set(s.cx, 1.7, s.cz); yaw = 0; pitch = 0; vel.set(0, 0, 0); lastId = null; }
+function currentId() { for (const s of spaces.values()) if (camera.position.x >= s.x0 - 0.3 && camera.position.x <= s.x1 + 0.3 && camera.position.z >= s.z0 - 0.3 && camera.position.z <= s.z1 + 0.3) return s.id; return null; }
+
+/* ===== minimap ===== */
+const map = document.getElementById('map'), mctx = map.getContext('2d'); const MAPPAD = 12;
+function worldBounds() { let a = 1e9, b = -1e9, c = 1e9, d = -1e9; spaces.forEach(s => { a = Math.min(a, s.x0); b = Math.max(b, s.x1); c = Math.min(c, s.z0); d = Math.max(d, s.z1); }); return { a, b, c, d }; }
+function mapXform() { const w = worldBounds(); const MW = map.width - MAPPAD * 2, MH = map.height - MAPPAD * 2; const s = Math.min(MW / Math.max(1, w.b - w.a), MH / Math.max(1, w.d - w.c)); const ox = MAPPAD + (MW - (w.b - w.a) * s) / 2, oz = MAPPAD + (MH - (w.d - w.c) * s) / 2; return { w, s, ox, oz }; }
+function drawMap() { const { w, s, ox, oz } = mapXform(); const X = (x) => ox + (x - w.a) * s, Z = (z) => oz + (z - w.c) * s; mctx.clearRect(0, 0, map.width, map.height); const cur = currentId();
+  spaces.forEach(sp => { const st = styleById(sp.styleId); mctx.fillStyle = sp.id === cur ? 'rgba(255,210,122,.25)' : 'rgba(255,255,255,.06)'; mctx.fillRect(X(sp.x0), Z(sp.z0), (sp.x1 - sp.x0) * s, (sp.z1 - sp.z0) * s); mctx.strokeStyle = hex(st.accent) + '88'; mctx.lineWidth = 1; mctx.strokeRect(X(sp.x0) + .5, Z(sp.z0) + .5, (sp.x1 - sp.x0) * s - 1, (sp.z1 - sp.z0) * s - 1); });
+  mctx.strokeStyle = '#06060a'; mctx.lineWidth = 3; connections.forEach(cn => { const sp = spaces.get(cn.a); if (!sp) return; if (cn.side === 'N' || cn.side === 'S') { const z = cn.side === 'N' ? sp.z0 : sp.z1; mctx.beginPath(); mctx.moveTo(X(cn.lo), Z(z)); mctx.lineTo(X(cn.hi), Z(z)); mctx.stroke(); } else { const x = cn.side === 'E' ? sp.x1 : sp.x0; mctx.beginPath(); mctx.moveTo(X(x), Z(cn.lo)); mctx.lineTo(X(x), Z(cn.hi)); mctx.stroke(); } });
+  const px = X(camera.position.x), pz = Z(camera.position.z); mctx.save(); mctx.translate(px, pz); mctx.rotate(-yaw); mctx.fillStyle = '#ffd27a'; mctx.beginPath(); mctx.moveTo(0, -6); mctx.lineTo(4, 4); mctx.lineTo(-4, 4); mctx.closePath(); mctx.fill(); mctx.restore(); }
+map.addEventListener('click', (e) => { const r = map.getBoundingClientRect(); const { w, s, ox, oz } = mapXform(); const fx = (e.clientX - r.left) / r.width * map.width, fy = (e.clientY - r.top) / r.height * map.height; const wx = w.a + (fx - ox) / s, wz = w.c + (fy - oz) / s; for (const sp of spaces.values()) if (wx >= sp.x0 && wx <= sp.x1 && wz >= sp.z0 && wz <= sp.z1) { if (!started) enterTour(); teleport(sp.id); break; } });
+
+/* ===== guided tour ===== */
+function adj(id) { const out = []; connections.forEach(c => { if (c.a === id) { /* neighbor is space on other side */ const sp = spaces.get(id); const nb = spaceOnOtherSide(c); if (nb) out.push(nb); } else { const nb = spaceOnOtherSide(c); if (nb === id) out.push(c.a); } }); return out; }
+function spaceOnOtherSide(c) { const a = spaces.get(c.a); if (!a) return null; let px, pz; if (c.side === 'N') { px = (c.lo + c.hi) / 2; pz = a.z0 - 0.5; } else if (c.side === 'S') { px = (c.lo + c.hi) / 2; pz = a.z1 + 0.5; } else if (c.side === 'E') { px = a.x1 + 0.5; pz = (c.lo + c.hi) / 2; } else { px = a.x0 - 0.5; pz = (c.lo + c.hi) / 2; } for (const s of spaces.values()) if (px >= s.x0 && px <= s.x1 && pz >= s.z0 && pz <= s.z1) return s.id; return null; }
+function doorPoint(c) { const a = spaces.get(c.a); if (c.side === 'N') return [(c.lo + c.hi) / 2, a.z0]; if (c.side === 'S') return [(c.lo + c.hi) / 2, a.z1]; if (c.side === 'E') return [a.x1, (c.lo + c.hi) / 2]; return [a.x0, (c.lo + c.hi) / 2]; }
+function connBetween(a, b) { for (const c of connections) { if (c.a === a && spaceOnOtherSide(c) === b) return c; if (c.a === b && spaceOnOtherSide(c) === a) return c; } return null; }
+const GT = { active: false, wp: [], i: 0, phase: 'move', hold: 0, lookYaw: 0,
+  build() { this.wp = []; const seen = new Set(); const startId = currentId() || spaces.keys().next().value; const order = []; const dfs = (id) => { seen.add(id); order.push({ type: 'room', id }); for (const nb of adj(id)) if (!seen.has(nb)) { dfs(nb); order.push({ type: 'room', id }); } }; dfs(startId);
+    for (let i = 0; i < order.length; i++) { const cur = spaces.get(order[i].id); if (i > 0) { const c = connBetween(order[i - 1].id, order[i].id); if (c) { const dp = doorPoint(c); this.wp.push({ x: dp[0], z: dp[1], dwell: 0 }); } } const firstVisit = !this.wp.some(w => w.id === cur.id); this.wp.push({ x: cur.cx, z: cur.cz, dwell: firstVisit ? 2.4 : 0.4, id: cur.id, space: cur }); } },
+  bestYaw(s) { if (!s) return 0; let best = 'N', n = -1; for (const sd of SIDES) { const c = (s.frames[sd] || []).filter(f => f.filled).length; if (c > n) { n = c; best = sd; } } return YAWFOR[best]; },
+  start() { this.build(); if (!this.wp.length) return; this.active = true; this.i = 0; this.phase = 'move'; this.hold = 0; document.body.classList.add('guided'); pitch = 0; },
+  stop() { if (!this.active) return; this.active = false; document.body.classList.remove('guided'); },
+  update(dt) { const t = this.wp[this.i]; if (!t) { this.stop(); return; } const dx = t.x - camera.position.x, dz = t.z - camera.position.z; const dist = Math.hypot(dx, dz);
+    if (this.phase === 'move') { if (dist > 0.06) { const k = Math.min(1, 2.6 * dt / dist); camera.position.x += dx * k; camera.position.z += dz * k; const ty = Math.atan2(-dx, -dz); let d = ty - yaw; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; yaw += d * Math.min(1, dt * 3); } else { if (t.dwell > 0) { this.phase = 'look'; this.hold = 0; this.lookYaw = this.bestYaw(t.space); } else { this.i = (this.i + 1) % this.wp.length; } } }
+    else { let d = this.lookYaw - yaw; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; yaw += d * Math.min(1, dt * 1.6); pitch += (0 - pitch) * Math.min(1, dt * 2); this.hold += dt; if (this.hold > t.dwell && Math.abs(d) < 0.05) { this.i = (this.i + 1) % this.wp.length; this.phase = 'move'; } } },
+};
+document.getElementById('gtStop').onclick = () => GT.stop();
+
+/* ===== movement + render ===== */
+const clock = new THREE.Clock(); const fwd = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), vel = new THREE.Vector3(); const PR = 0.4;
+function collide(pos) { for (const b of colliders) { const cx = Math.max(b.min.x, Math.min(pos.x, b.max.x)), cz = Math.max(b.min.z, Math.min(pos.z, b.max.z)); const dx = pos.x - cx, dz = pos.z - cz, d2 = dx * dx + dz * dz; if (d2 < PR * PR) { if (d2 > 1e-6) { const d = Math.sqrt(d2); pos.x = cx + dx / d * PR; pos.z = cz + dz / d * PR; } else pos.x = cx + PR; } } }
+let lastId = null, mapTick = 0;
+function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.05); camera.rotation.set(pitch, yaw, 0);
+  if (inTour && !paused) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight']) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
+    camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); } }
+  if (++mapTick % 3 === 0 && (inTour || paused)) drawMap(); (composer || renderer).render(scene, camera);
+}
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer?.setSize(innerWidth, innerHeight); });
+let toastTimer; function toast(msg) { const el = document.getElementById('toast'); el.textContent = msg; el.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2300); }
+
+/* ===== boot ===== */
+function buildFromConfig(cfg) {
+  cfg.spaces.forEach(o => spaces.set(o.id, { id: o.id, type: o.type, name: o.name, styleId: o.styleId, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1 }));
+  nextId = cfg.nextId || spaces.size;
+  spaces.forEach(buildSpaceBase);
+  (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); });
+  spaces.forEach(s => { for (const sd of SIDES) buildWallSide(s, sd); });
+  connections.forEach(c => { const a = spaces.get(c.a); buildDoorway(a, c.side, c.lo, c.hi); });
+  spaces.forEach(s => applyTheme(s, false));
+}
+async function boot() {
+  const share = readShare(); const recs = share ? [] : await DB.all(); let config = null; const mediaRecs = []; let hadMedia = false;
+  for (const r of recs) { if (r.frame === 'config') config = r.config; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) { mediaRecs.push(r); hadMedia = true; } }
+  if (share) { const cfg = { spaces: share.s.map(a => ({ id: a[0], type: a[1], name: a[2], styleId: a[3], x0: a[4], x1: a[5], z0: a[6], z1: a[7] })), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
+  else if (config && config.spaces?.length) { buildFromConfig(config); for (const r of mediaRecs) { const f = frameById.get(r.frame); if (!f) continue; if (r.title) f.title = r.title; if (r.blob) { const u = URL.createObjectURL(r.blob); r.type === 'video' ? applyVideo(f, u) : applyImage(f, u); } else drawPlate(f); } }
+  else { const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', styleId: 'classic', x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2 }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); }
+  buildWingEditor(); updateCount();
+  if (!share && !config && !hadMedia) await addSamples();
+  document.getElementById('loading').classList.add('hidden');
+}
+animate(); boot();
+</script>
+</body>
+</html>
