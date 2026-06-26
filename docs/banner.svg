@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" width="1200" height="380" role="img" aria-label="Youseum — a first-person virtual museum">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#13131b"/>
+      <stop offset="1" stop-color="#08080c"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c2c34"/>
+      <stop offset="1" stop-color="#17171d"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff0d0" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#fff0d0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="a1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff9a4d"/><stop offset="1" stop-color="#ffd86b"/></linearGradient>
+    <linearGradient id="a2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4d79ff"/><stop offset="1" stop-color="#9b6bff"/></linearGradient>
+    <linearGradient id="a3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34d399"/><stop offset="1" stop-color="#a7f3d0"/></linearGradient>
+    <linearGradient id="a4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f472b6"/><stop offset="1" stop-color="#c084fc"/></linearGradient>
+    <linearGradient id="a5" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#2dd4bf"/></linearGradient>
+  </defs>
+
+  <rect width="1200" height="380" fill="url(#bg)"/>
+  <!-- gallery wall band -->
+  <rect x="0" y="40" width="1200" height="250" fill="#1c1c24"/>
+  <rect x="0" y="282" width="1200" height="98" fill="url(#floor)"/>
+  <rect x="0" y="280" width="1200" height="3" fill="#000" opacity="0.5"/>
+
+  <!-- ceiling spotlights -->
+  <g>
+    <ellipse cx="170" cy="60" rx="120" ry="34" fill="url(#glow)"/>
+    <ellipse cx="410" cy="60" rx="120" ry="34" fill="url(#glow)"/>
+    <ellipse cx="800" cy="60" rx="120" ry="34" fill="url(#glow)"/>
+    <ellipse cx="1040" cy="60" rx="120" ry="34" fill="url(#glow)"/>
+  </g>
+
+  <!-- framed pictures -->
+  <g>
+    <!-- frame helper look: gold border, light matte, gradient art -->
+    <g transform="translate(110,120)">
+      <rect x="-6" y="-6" width="132" height="112" rx="3" fill="#b98a3e"/>
+      <rect x="0" y="0" width="120" height="100" fill="#f4f0e6"/>
+      <rect x="8" y="8" width="104" height="84" fill="url(#a1)"/>
+    </g>
+    <g transform="translate(330,128)">
+      <rect x="-6" y="-6" width="112" height="132" rx="3" fill="#b98a3e"/>
+      <rect x="0" y="0" width="100" height="120" fill="#f4f0e6"/>
+      <rect x="8" y="8" width="84" height="104" fill="url(#a2)"/>
+    </g>
+
+    <!-- doorway to another wing -->
+    <g transform="translate(520,90)">
+      <rect x="0" y="0" width="160" height="192" fill="#0c0c12"/>
+      <rect x="6" y="6" width="148" height="186" fill="#11131c"/>
+      <rect x="0" y="0" width="160" height="10" fill="#2a2a30"/>
+      <text x="80" y="106" text-anchor="middle" font-family="Georgia, serif" font-size="15" fill="#5a6a8a" letter-spacing="2">WING →</text>
+    </g>
+
+    <g transform="translate(740,128)">
+      <rect x="-6" y="-6" width="112" height="132" rx="3" fill="#b98a3e"/>
+      <rect x="0" y="0" width="100" height="120" fill="#f4f0e6"/>
+      <rect x="8" y="8" width="84" height="104" fill="url(#a3)"/>
+    </g>
+    <g transform="translate(930,120)">
+      <rect x="-6" y="-6" width="132" height="112" rx="3" fill="#b98a3e"/>
+      <rect x="0" y="0" width="120" height="100" fill="#f4f0e6"/>
+      <rect x="8" y="8" width="104" height="84" fill="url(#a4)"/>
+    </g>
+    <g transform="translate(1085,128)">
+      <rect x="-6" y="-6" width="92" height="132" rx="3" fill="#b98a3e"/>
+      <rect x="0" y="0" width="80" height="120" fill="#f4f0e6"/>
+      <rect x="8" y="8" width="64" height="104" fill="url(#a5)"/>
+    </g>
+  </g>
+
+  <!-- baseboard -->
+  <rect x="0" y="276" width="1200" height="6" fill="#201f1d"/>
+
+  <!-- title plate -->
+  <g>
+    <rect x="380" y="300" width="440" height="64" rx="10" fill="#000" opacity="0.35"/>
+    <text x="600" y="334" text-anchor="middle" font-family="Georgia, serif" font-weight="700" font-size="40" fill="#ffd27a">Youseum</text>
+    <text x="600" y="356" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13.5" fill="#c9c9d4">A first-person virtual museum of your own photos &amp; videos</text>
+  </g>
+</svg>
