@@ -49,7 +49,8 @@
   .wing .wtop { display: flex; gap: 6px; align-items: center; } .wing .kind { font-size: 10px; padding: 2px 6px; border-radius: 5px; background: rgba(255,210,122,.18); color: #ffd27a; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
   .wing input.wname { flex: 1; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px 8px; font: 600 13px inherit; min-width: 0; }
   .wing select { background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px; font: 500 12.5px inherit; flex: 1; }
-  .wing .wbtns { display: flex; gap: 6px; } .wing .wbtns button { flex: 1; cursor: pointer; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #dcdce4; font: 600 12px inherit; padding: 7px; border-radius: 7px; } .wing .wbtns button:hover { background: rgba(255,255,255,.14); } .wing .wbtns button.has { border-color: #ffc24d55; color: #ffd27a; }
+  .wing .wbtns { display: flex; gap: 6px; } .wing .wbtns button { flex: 1; cursor: pointer; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #dcdce4; font: 600 12px inherit; padding: 7px; border-radius: 7px; } .wing .wbtns button:hover { background: rgba(255,255,255,.14); } .wing .wbtns button.has { border-color: #ffc24d55; color: #ffd27a; } .wing .wbtns button.del { border-color: #ff6b6b55; color: #ff9a9a; } .wing .wbtns button.del:hover { background: rgba(255,107,107,.16); }
+  #menu button.item:disabled { opacity: .5; cursor: default; }
   #overview { position: fixed; inset: 0; z-index: 28; background: rgba(7,7,11,.94); backdrop-filter: blur(6px); display: none; flex-direction: column; padding: 22px; } #overview.open { display: flex; }
   #overview .ohead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; } #overview h2 { font-size: 22px; } #overview h2 .accent { color: #ffd27a; }
   #overview .oclose { cursor: pointer; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); color: #fff; font: 600 14px inherit; padding: 9px 14px; border-radius: 9px; }
@@ -82,10 +83,15 @@
     <h2>My <span class="accent">Museum</span></h2>
     <div class="grp">
       <div class="lbl">Add media</div>
-      <button class="item accent" data-act="add">＋ Add photos / videos</button>
+      <button class="item accent" data-act="add">＋ Add photos, videos &amp; GIFs</button>
       <div class="lbl" style="margin-top:6px">Place them in</div>
       <div class="seg" id="scopeSeg"><button data-scope="room">This room</button><button data-scope="all" class="on">Whole museum</button></div>
       <div id="count">0 / 0 filled</div>
+    </div>
+    <div class="grp">
+      <div class="lbl">Edit</div>
+      <button class="item" data-act="undo" id="undoBtn">↶ Nothing to undo</button>
+      <div class="lbl" style="margin-top:2px;color:#6a6a76">Shortcut: <b style="color:#9a9aa6">Ctrl/⌘ + Z</b></div>
     </div>
     <div class="grp">
       <div class="lbl">Explore</div>
@@ -103,7 +109,8 @@
       <button class="item" data-act="share">🔗 Copy share link (layout)</button>
       <button class="item" data-act="export">⤓ Export / share file (with media)</button>
       <button class="item" data-act="import">⤒ Import a file</button>
-      <button class="item" data-act="reset">↺ Reset gallery</button>
+      <button class="item" data-act="reset">↺ Reset media (keep rooms)</button>
+      <button class="item" data-act="resetall">⊘ Reset entire museum</button>
     </div>
     <div class="grp">
       <div class="lbl">Music</div>
@@ -233,7 +240,7 @@ function addFrame(id, x, y, z, ry) {
 }
 function sizeFrame(f, w, h) { const s = Math.min(2.8 / w, 2.0 / h, 1.7); w *= s; h *= s; f.art.scale.set(w, h, 1); f.matte.scale.set(w + 0.14, h + 0.14, 1); f.border.scale.set(w + 0.32, h + 0.32, 1); f.shadow.scale.set(w + 0.32, h + 0.32, 1); f.lightbar.position.set(0, h / 2 + 0.28, 0.16); f.lightbar.scale.x = w * 0.7; f.plateMesh.position.y = -(h / 2 + 0.30); f.plateMesh.scale.x = Math.min(Math.max(w * 0.65, 0.5), 1.4); }
 function fitAspect(f, a) { let h = 1.4, w = h * a; if (w > 2.8) { w = 2.8; h = w / a; } if (h > 2.0) { h = 2.0; w = h * a; } sizeFrame(f, w, h); }
-function removeFrame(f) { if (f.video) { f.video.pause(); f.video.src = ''; } scene.remove(f.group); const i = frames.indexOf(f); if (i >= 0) frames.splice(i, 1); frameById.delete(f.id); DB.del(f.id); }
+function removeFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; } if (audibleVideo === f) audibleVideo = null; scene.remove(f.group); const i = frames.indexOf(f); if (i >= 0) frames.splice(i, 1); frameById.delete(f.id); DB.del(f.id); }
 
 /* ===== spaces, walls, doorways ===== */
 const wallMeshes = [];
@@ -242,8 +249,8 @@ function buildSpaceBase(s) {
   s.cx = cx; s.cz = cz; s.wallMat = new THREE.MeshStandardMaterial({ color: st.wall, roughness: .95 });
   s.floorMat = new THREE.MeshStandardMaterial({ map: floorTexFor(st.floor, w, d), roughness: st.rough, metalness: st.metal });
   const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), s.floorMat); fl.rotation.x = -Math.PI / 2; fl.position.set(cx, 0, cz); scene.add(fl); s.floor = fl;
-  box(cx, H, cz, w, 0.3, d, ceilMat, false);
-  const long = Math.max(w, d); box(cx, H - 0.18, cz, w >= d ? long * .8 : 0.6, 0.12, w >= d ? 0.6 : long * .8, stripMat, false);
+  s.ceil = box(cx, H, cz, w, 0.3, d, ceilMat, false);
+  const long = Math.max(w, d); s.strip = box(cx, H - 0.18, cz, w >= d ? long * .8 : 0.6, 0.12, w >= d ? 0.6 : long * .8, stripMat, false);
   s.point = new THREE.PointLight(st.light, st.li, 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
   s.spots = []; if (!LITE && s.type === 'room') for (const a of [['z', -1], ['z', 1], ['x', -1], ['x', 1]]) { const sp = new THREE.SpotLight(st.light, 9, 15, 0.7, 0.6, 1.2); sp.position.set(cx + (a[0] === 'x' ? a[1] * 2.2 : 0), H - 0.4, cz + (a[0] === 'z' ? a[1] * 2.2 : 0)); sp.target.position.set(cx + (a[0] === 'x' ? a[1] * w / 2 : 0), 1.7, cz + (a[0] === 'z' ? a[1] * d / 2 : 0)); scene.add(sp, sp.target); s.spots.push(sp); }
   s.signMesh = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(6, w - 1), 1.4), new THREE.MeshBasicMaterial({ map: makeSignTex(s.name, st.accent), transparent: true })); s.signMesh.position.set(cx, 4.0, s.z0 + 0.06); scene.add(s.signMesh);
@@ -273,9 +280,10 @@ function buildWallSide(s, side) {
 }
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
 function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
-function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
-  if (side === 'N' || side === 'S') { const z = side === 'N' ? s.z0 : s.z1; box((lo + hi) / 2, (DOORH + H) / 2, z, hi - lo, H - DOORH, T, mat, false); box(lo, DOORH / 2, z, 0.14, DOORH, 0.5, doorTrimMat, false); box(hi, DOORH / 2, z, 0.14, DOORH, 0.5, doorTrimMat, false); }
-  else { const x = side === 'E' ? s.x1 : s.x0; box(x, (DOORH + H) / 2, (lo + hi) / 2, T, H - DOORH, hi - lo, mat, false); box(x, DOORH / 2, lo, 0.5, DOORH, 0.14, doorTrimMat, false); box(x, DOORH / 2, hi, 0.5, DOORH, 0.14, doorTrimMat, false); }
+function buildDoorway(s, side, lo, hi) { const mat = s.wallMat; const ms = [];
+  if (side === 'N' || side === 'S') { const z = side === 'N' ? s.z0 : s.z1; ms.push(box((lo + hi) / 2, (DOORH + H) / 2, z, hi - lo, H - DOORH, T, mat, false), box(lo, DOORH / 2, z, 0.14, DOORH, 0.5, doorTrimMat, false), box(hi, DOORH / 2, z, 0.14, DOORH, 0.5, doorTrimMat, false)); }
+  else { const x = side === 'E' ? s.x1 : s.x0; ms.push(box(x, (DOORH + H) / 2, (lo + hi) / 2, T, H - DOORH, hi - lo, mat, false), box(x, DOORH / 2, lo, 0.5, DOORH, 0.14, doorTrimMat, false), box(x, DOORH / 2, hi, 0.5, DOORH, 0.14, doorTrimMat, false)); }
+  return ms;
 }
 function applyTheme(s, save = true) { const st = styleById(s.styleId); s.wallMat.color.set(st.wall); s.floorMat.map = floorTexFor(st.floor, s.x1 - s.x0, s.z1 - s.z0); s.floorMat.roughness = st.rough; s.floorMat.metalness = st.metal; s.floorMat.needsUpdate = true; s.point.color.set(st.light); s.point.intensity = st.li; s.spots.forEach(sp => sp.color.set(st.light)); s.stars.visible = st.floor === 'dark'; s.signMesh.material.map = makeSignTex(s.name, st.accent); s.signMesh.material.needsUpdate = true; if (s.id === lastId) document.getElementById('roomlabel').textContent = s.name; if (save) saveConfig(); }
 function overlaps(x0, x1, z0, z1) { const e = 0.4; for (const s of spaces.values()) if (x0 < s.x1 - e && x1 > s.x0 + e && z0 < s.z1 - e && z1 > s.z0 + e) return true; return false; }
@@ -298,26 +306,81 @@ function buildSpaceFrom(type, parent, side, uHit) {
   parent.sides[side].push([olo, ohi]); rebuildWallSide(parent, side);
   s.sides[OPP[side]].push([olo, ohi]);
   for (const sd of SIDES) buildWallSide(s, sd);
-  buildDoorway(parent, side, olo, ohi);
-  connections.push({ a: parent.id, side, lo: olo, hi: ohi });
+  const dm = buildDoorway(parent, side, olo, ohi);
+  connections.push({ a: parent.id, side, lo: olo, hi: ohi, doorMeshes: dm });
   applyTheme(s, false); saveConfig(); buildWingEditor(); updateCount();
   toast('New ' + type + ' built — walk through the opening');
+  pushUndo('build ' + type, () => deleteSpace(s.id, { undo: false }));
 }
 
 /* ===== media ===== */
-function applyImage(f, url) { loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (f.video) { f.video.pause(); f.video = null; } f.mat.map = t; f.mat.needsUpdate = true; fitAspect(f, t.image.width / t.image.height); f.filled = true; f.srcURL = url; drawPlate(f); updateCount(); }); }
-function applyVideo(f, url) { const v = document.createElement('video'); v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play().catch(() => {}); const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; f.mat.map = t; f.mat.needsUpdate = true; f.video = v; f.srcURL = url; v.addEventListener('loadedmetadata', () => fitAspect(f, (v.videoWidth || 16) / (v.videoHeight || 9))); f.filled = true; drawPlate(f); updateCount(); }
-async function assignFile(f, file) { const url = URL.createObjectURL(file); const isVid = file.type.startsWith('video'); isVid ? applyVideo(f, url) : applyImage(f, url); try { await DB.put({ frame: f.id, type: isVid ? 'video' : 'image', blob: file, title: f.title }); } catch { toast('Storage full — shown this session only'); } }
-function clearFrame(f) { if (f.video) { f.video.pause(); f.video.src = ''; f.video = null; } f.mat.map = placeholderTex(); f.mat.needsUpdate = true; sizeFrame(f, 1.7, 1.2); f.filled = false; f.title = ''; f.srcURL = null; drawPlate(f); DB.del(f.id); updateCount(); }
+const gifHost = document.createElement('div'); gifHost.style.cssText = 'position:fixed;left:-10000px;top:0;opacity:0;pointer-events:none;'; document.body.appendChild(gifHost);
+const gifAnims = []; let audibleVideo = null;
+function setAudibleVideo(f) { audibleVideo = f; for (const fr of frames) if (fr.video) fr.video.muted = (fr !== f); }
+function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); a.img.remove(); a.tex.dispose?.(); f.gif = null; }
+function applyImage(f, url) { stopGif(f); loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (f.video) { f.video.pause(); f.video = null; } f.mat.map = t; f.mat.needsUpdate = true; fitAspect(f, t.image.width / t.image.height); f.filled = true; f.srcURL = url; drawPlate(f); updateCount(); }); }
+function applyVideo(f, url) { stopGif(f); const v = document.createElement('video'); v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play().catch(() => {}); const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; f.mat.map = t; f.mat.needsUpdate = true; f.video = v; f.srcURL = url; v.addEventListener('loadedmetadata', () => fitAspect(f, (v.videoWidth || 16) / (v.videoHeight || 9))); f.filled = true; drawPlate(f); updateCount(); }
+function applyGif(f, url) { if (f.video) { f.video.pause(); f.video = null; } stopGif(f); const img = document.createElement('img'); img.src = url; gifHost.appendChild(img); const cv = document.createElement('canvas'); cv.width = 2; cv.height = 2; const cx = cv.getContext('2d'); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; const anim = { img, cv, cx, tex }; img.onload = () => { cv.width = img.naturalWidth || 320; cv.height = img.naturalHeight || 240; fitAspect(f, cv.width / cv.height); }; f.mat.map = tex; f.mat.needsUpdate = true; f.gif = anim; f.srcURL = url; f.filled = true; gifAnims.push(anim); drawPlate(f); updateCount(); }
+const mediaType = (file) => file.type === 'image/gif' ? 'gif' : file.type.startsWith('video') ? 'video' : 'image';
+const applyByType = (f, type, url) => { type === 'video' ? applyVideo(f, url) : type === 'gif' ? applyGif(f, url) : applyImage(f, url); };
+async function assignFile(f, file, record = true) {
+  let prev; if (record) prev = { rec: await DB.get(f.id), title: f.title };
+  const url = URL.createObjectURL(file); const type = mediaType(file); applyByType(f, type, url);
+  try { await DB.put({ frame: f.id, type, blob: file, title: f.title }); } catch { toast('Storage full — shown this session only'); }
+  if (record) pushUndo('add media', () => restoreFrame(f, prev.rec, prev.title));
+}
+async function restoreFrame(f, rec, title) {
+  stopGif(f); if (f.video) { f.video.pause(); f.video = null; } if (audibleVideo === f) audibleVideo = null;
+  if (rec && rec.blob) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); try { await DB.put(rec); } catch {} drawPlate(f); }
+  else { f.title = title || ''; f.mat.map = placeholderTex(); f.mat.needsUpdate = true; sizeFrame(f, 1.7, 1.2); f.filled = false; f.srcURL = null; drawPlate(f); await DB.del(f.id); }
+  updateCount();
+}
+function clearFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; f.video = null; } if (audibleVideo === f) audibleVideo = null; f.mat.map = placeholderTex(); f.mat.needsUpdate = true; sizeFrame(f, 1.7, 1.2); f.filled = false; f.title = ''; f.srcURL = null; drawPlate(f); DB.del(f.id); updateCount(); }
+function clearFrameUndoable(f) { DB.get(f.id).then(prev => { const t = f.title; clearFrame(f); pushUndo('clear frame', () => restoreFrame(f, prev, t)); }); }
+
+/* ===== undo + delete room ===== */
+const undoStack = [];
+function updateUndoBtn() { const b = document.getElementById('undoBtn'); if (!b) return; b.disabled = undoStack.length === 0; b.textContent = undoStack.length ? '↶ Undo: ' + undoStack[undoStack.length - 1].label : '↶ Nothing to undo'; }
+function pushUndo(label, fn) { undoStack.push({ label, fn }); if (undoStack.length > 40) undoStack.shift(); updateUndoBtn(); }
+async function doUndo() { const u = undoStack.pop(); if (!u) { toast('Nothing to undo'); updateUndoBtn(); return; } try { await u.fn(); toast('Undid: ' + u.label); } catch (e) { console.error(e); toast('Could not undo that'); } updateUndoBtn(); }
+function disposeSpace(s) { for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); removeBox(s.strip); removeBox(s.signMesh); scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
+async function deleteSpace(id, opts = {}) {
+  if (spaces.size <= 1) { toast('Keep at least one room'); return; }
+  const s = spaces.get(id); if (!s) return;
+  if (opts.confirm && !confirm('Delete "' + s.name + '" and everything in it?')) return;
+  GT.stop();
+  let snap = null;
+  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, styleId: s.styleId, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 }, conns: [], media }; }
+  const involved = connections.filter(c => c.a === id || spaceOnOtherSide(c) === id);
+  const reseal = involved.map(c => ({ otherId: (c.a === id) ? spaceOnOtherSide(c) : c.a, otherSide: (c.a === id) ? OPP[c.side] : c.side, lo: c.lo, hi: c.hi, doorMeshes: c.doorMeshes }));
+  if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }));
+  for (const c of involved) { const i = connections.indexOf(c); if (i >= 0) connections.splice(i, 1); }
+  disposeSpace(s); spaces.delete(id);
+  for (const r of reseal) { (r.doorMeshes || []).forEach(removeBox); const o = spaces.get(r.otherId); if (o) { const arr = o.sides[r.otherSide]; const idx = arr.findIndex(p => Math.abs(p[0] - r.lo) < 0.05 && Math.abs(p[1] - r.hi) < 0.05); if (idx >= 0) arr.splice(idx, 1); rebuildWallSide(o, r.otherSide); } }
+  if (currentId() === null) { const first = spaces.values().next().value; if (first) teleport(first.id); }
+  saveConfig(); buildWingEditor(); updateCount(); toast('Deleted ' + s.name);
+  if (opts.undo && snap) pushUndo('delete ' + snap.s.type, () => rebuildSpace(snap));
+}
+function rebuildSpace(snap) {
+  const s = { ...snap.s }; spaces.set(s.id, s); buildSpaceBase(s);
+  for (const c of snap.conns) { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const A = spaces.get(c.a); if (A) A.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb && spaces.get(nb)) spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); }
+  for (const sd of SIDES) buildWallSide(s, sd);
+  const done = new Set();
+  for (const c of snap.conns) { const nbId = (c.a === s.id) ? spaceOnOtherSide(c) : c.a; const nbSide = (c.a === s.id) ? OPP[c.side] : c.side; const key = nbId + nbSide; if (spaces.get(nbId) && !done.has(key)) { rebuildWallSide(spaces.get(nbId), nbSide); done.add(key); } }
+  for (const c of snap.conns) { const conn = connections.find(x => x.a === c.a && x.side === c.side && Math.abs(x.lo - c.lo) < 0.05); const A = spaces.get(c.a); if (A && conn) conn.doorMeshes = buildDoorway(A, c.side, c.lo, c.hi); }
+  applyTheme(s, false);
+  for (const rec of snap.media) { const f = frameById.get(rec.frame); if (f) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); DB.put(rec).catch(() => {}); drawPlate(f); } }
+  saveConfig(); buildWingEditor(); updateCount();
+}
 const updateCount = () => document.getElementById('count').textContent = `${frames.filter(f => f.filled).length} / ${frames.length} filled`;
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
-const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, styleId: s.styleId, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 })), connections, nextId } });
+const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, styleId: s.styleId, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId } });
 
 /* ===== sample art ===== */
 function drawSample(g, w, h, k) { const pals = [['#ff9a4d', '#ffd86b'], ['#4d79ff', '#9b6bff'], ['#0f2027', '#2c5364'], ['#34d399', '#a7f3d0'], ['#f472b6', '#c084fc'], ['#0ea5e9', '#2dd4bf']][k % 6]; const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, pals[0]); grad.addColorStop(1, pals[1]); g.fillStyle = grad; g.fillRect(0, 0, w, h); g.globalAlpha = .18; for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#000000'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, 0, 7); g.fill(); } g.globalAlpha = 1; if (k === 5) { g.fillStyle = 'rgba(0,0,0,.32)'; g.fillRect(w * .12, h * .34, w * .76, h * .32); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 60px Georgia, serif'; g.fillText('Your Museum', w / 2, h * .47); g.font = '400 26px system-ui'; g.fillText('face a wall & click to build', w / 2, h * .57); } else { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 8; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, Math.random() * h); g.bezierCurveTo(w * .3, Math.random() * h, w * .6, Math.random() * h, w, Math.random() * h); g.stroke(); } } }
 function makeSampleBlob(k) { return new Promise((res) => { const c = document.createElement('canvas'); c.width = 900; c.height = 620; drawSample(c.getContext('2d'), 900, 620, k); c.toBlob(b => res(b), 'image/jpeg', 0.9); }); }
-async function addSamples() { const s = spaces.values().next().value; const fl = spaceFramesList(s).slice(0, 6); const titles = ['Sunrise', 'Aurora', 'Deep Sea', 'Meadow', 'Bloom', 'Your Museum']; for (let k = 0; k < fl.length; k++) { const blob = await makeSampleBlob(k); fl[k].title = titles[k]; await assignFile(fl[k], new File([blob], 'sample' + k + '.jpg', { type: 'image/jpeg' })); drawPlate(fl[k]); } }
+async function addSamples() { const s = spaces.values().next().value; const fl = spaceFramesList(s).slice(0, 6); const titles = ['Sunrise', 'Aurora', 'Deep Sea', 'Meadow', 'Bloom', 'Your Museum']; for (let k = 0; k < fl.length; k++) { const blob = await makeSampleBlob(k); fl[k].title = titles[k]; await assignFile(fl[k], new File([blob], 'sample' + k + '.jpg', { type: 'image/jpeg' }), false); drawPlate(fl[k]); } }
 
 /* ===== controls / state ===== */
 let inTour = false, paused = false, started = false, exiting = false, yaw = 0, pitch = 0;
@@ -327,7 +390,7 @@ function resume() { if (!isTouch) canvas.requestPointerLock?.(); }
 function exitTour() { GT.stop(); exiting = true; inTour = false; paused = false; document.body.classList.remove('tour', 'paused'); if (document.pointerLockElement) document.exitPointerLock(); overlay.classList.remove('hidden'); }
 document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement === canvas) { inTour = true; paused = false; document.body.classList.add('tour'); document.body.classList.remove('paused'); overlay.classList.add('hidden'); } else { inTour = false; if (exiting) { exiting = false; document.body.classList.remove('tour', 'paused'); } else if (started) { paused = true; document.body.classList.add('tour', 'paused'); } } });
 document.addEventListener('mousemove', (e) => { if (document.pointerLockElement !== canvas) return; if (GT.active) GT.stop(); yaw -= e.movementX * 0.0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * 0.0022)); });
-addEventListener('keydown', (e) => { keys[e.code] = true; if (e.code === 'Escape') return; if (!inTour) return; if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code) && GT.active) GT.stop(); if (e.code === 'KeyE') toggleVideo(); if (e.code === 'KeyM') toggleMute(); if (e.code === 'KeyT') titleFrame(); if (e.code === 'Backspace' && lookingAt) { clearFrame(lookingAt); toast('Frame cleared'); } });
+addEventListener('keydown', (e) => { keys[e.code] = true; if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) { e.preventDefault(); doUndo(); return; } if (e.code === 'Escape') return; if (!inTour) return; if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code) && GT.active) GT.stop(); if (e.code === 'KeyE') toggleVideo(); if (e.code === 'KeyM') toggleMute(); if (e.code === 'KeyT') titleFrame(); if (e.code === 'Backspace' && lookingAt) { clearFrameUndoable(lookingAt); toast('Frame cleared'); } });
 addEventListener('keyup', (e) => keys[e.code] = false);
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('mousedown', (e) => { if (document.pointerLockElement === canvas) { if (e.button === 2) buildAtWall('wing'); else interact(); } else if (paused) resume(); });
@@ -357,7 +420,7 @@ const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show
 function interact() { if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else if (f.video) toggleVideo(); } else if (lookingWall) buildAtWall('hall'); }
 function buildAtWall(type) { if (!lookingWall) return; const p = spaces.get(lookingWall.id); if (p) buildSpaceFrom(type, p, lookingWall.side, lookingWall.u); }
 const toggleVideo = () => { const f = lookingAt; if (f?.video) f.video.paused ? f.video.play() : f.video.pause(); };
-const toggleMute = () => { const f = lookingAt; if (f?.video) { f.video.muted = !f.video.muted; toast(f.video.muted ? 'Muted' : 'Sound on'); } };
+const toggleMute = () => { const f = lookingAt; if (!f?.video) return; if (audibleVideo === f && !f.video.muted) { f.video.muted = true; audibleVideo = null; toast('Muted'); } else { setAudibleVideo(f); toast('Sound on (other videos muted)'); } };
 function titleFrame() { const f = lookingAt; if (!f) return; const wasLocked = document.pointerLockElement === canvas; if (wasLocked) document.exitPointerLock(); setTimeout(async () => { const t = prompt('Title for this frame:', f.title || ''); if (t !== null) { f.title = t.trim(); drawPlate(f); const rec = await DB.get(f.id); if (rec) { rec.title = f.title; DB.put(rec); } } if (wasLocked && !isTouch) canvas.requestPointerLock?.(); }, 60); }
 
 /* ===== file input + drop ===== */
@@ -404,9 +467,11 @@ document.querySelectorAll('#scopeSeg button').forEach(b => b.onclick = () => { a
 let musicScope = 'global';
 menu.querySelectorAll('button[data-act]').forEach(b => b.onclick = () => { const a = b.dataset.act;
   if (a === 'add') { addTarget = null; fileInput.click(); } else if (a === 'save') saveGallery(); else if (a === 'share') shareLink(); else if (a === 'export') exportGallery(); else if (a === 'import') document.getElementById('importFile').click();
+  else if (a === 'undo') doUndo();
   else if (a === 'overview') openOverview();
   else if (a === 'loadmusic') { musicScope = 'global'; document.getElementById('musicFile').click(); }
   else if (a === 'reset') { if (confirm('Remove all media and reset every frame? (rooms, themes & names are kept)')) DB.all().then(rs => Promise.all(rs.filter(r => typeof r.frame === 'string' && r.frame.includes(':')).map(r => DB.del(r.frame))).then(() => { frames.forEach(clearFrame); toast('Gallery reset'); })); }
+  else if (a === 'resetall') { if (confirm('Completely reset the museum? This wipes ALL media, rooms, music and settings, and cannot be undone.')) DB.all().then(rs => Promise.all(rs.map(r => DB.del(r.frame))).then(() => { location.hash = ''; location.reload(); })); }
   else if (a === 'tour') { closeMenu(); if (!started) enterTour(); GT.start(); }
   else if (a === 'exit') { closeMenu(); exitTour(); } });
 document.getElementById('musicOn').addEventListener('change', (e) => Music.setOn(e.target.checked));
@@ -418,12 +483,13 @@ function buildWingEditor() {
   const host = document.getElementById('wings'); host.innerHTML = '';
   sortedSpaces().forEach((s) => { const opts = STYLES.map(o => `<option value="${o.id}"${o.id === s.styleId ? ' selected' : ''}>${o.name}</option>`).join(''); const hasMusic = !!Music.tracks[s.id];
     const el = document.createElement('div'); el.className = 'wing';
-    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"></div><select class="wstyle">${opts}</select><div class="wbtns"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div>`;
+    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"></div><select class="wstyle">${opts}</select><div class="wbtns"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
     el.querySelector('.wname').onchange = (ev) => { s.name = ev.target.value.trim() || s.type; applyTheme(s); };
     el.querySelector('.wstyle').onchange = (ev) => { s.styleId = ev.target.value; applyTheme(s); };
     el.querySelector('[data-go]').onclick = () => { if (!started) enterTour(); teleport(s.id); closeMenu(); };
     el.querySelector('[data-mus]').onclick = () => { musicScope = s.id; document.getElementById('musicFile').click(); };
     el.querySelector('[data-musx]')?.addEventListener('click', () => Music.clearTrack(s.id));
+    el.querySelector('[data-del]').onclick = () => deleteSpace(s.id, { undo: true, confirm: true });
     host.appendChild(el); });
 }
 function openOverview() {
@@ -474,7 +540,9 @@ let lastId = null, mapTick = 0;
 function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.05); camera.rotation.set(pitch, yaw, 0);
   if (inTour && !paused) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight']) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
     camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); } }
-  if (++mapTick % 3 === 0 && (inTour || paused)) drawMap(); (composer || renderer).render(scene, camera);
+  if (++mapTick % 3 === 0 && (inTour || paused)) drawMap();
+  for (const a of gifAnims) { if (a.img.naturalWidth) { a.cx.drawImage(a.img, 0, 0, a.cv.width, a.cv.height); a.tex.needsUpdate = true; } }
+  (composer || renderer).render(scene, camera);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer?.setSize(innerWidth, innerHeight); });
 let toastTimer; function toast(msg) { const el = document.getElementById('toast'); el.textContent = msg; el.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2300); }
@@ -486,16 +554,19 @@ function buildFromConfig(cfg) {
   spaces.forEach(buildSpaceBase);
   (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); });
   spaces.forEach(s => { for (const sd of SIDES) buildWallSide(s, sd); });
-  connections.forEach(c => { const a = spaces.get(c.a); buildDoorway(a, c.side, c.lo, c.hi); });
+  connections.forEach(c => { const a = spaces.get(c.a); c.doorMeshes = buildDoorway(a, c.side, c.lo, c.hi); });
   spaces.forEach(s => applyTheme(s, false));
 }
 async function boot() {
   const share = readShare(); const recs = share ? [] : await DB.all(); let config = null; const mediaRecs = []; let hadMedia = false;
   for (const r of recs) { if (r.frame === 'config') config = r.config; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) { mediaRecs.push(r); hadMedia = true; } }
   if (share) { const cfg = { spaces: share.s.map(a => ({ id: a[0], type: a[1], name: a[2], styleId: a[3], x0: a[4], x1: a[5], z0: a[6], z1: a[7] })), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
-  else if (config && config.spaces?.length) { buildFromConfig(config); for (const r of mediaRecs) { const f = frameById.get(r.frame); if (!f) continue; if (r.title) f.title = r.title; if (r.blob) { const u = URL.createObjectURL(r.blob); r.type === 'video' ? applyVideo(f, u) : applyImage(f, u); } else drawPlate(f); } }
-  else { const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', styleId: 'classic', x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2 }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); }
-  buildWingEditor(); updateCount();
+  else {
+    if (config && config.spaces?.length) buildFromConfig(config);
+    else { const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', styleId: 'classic', x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2 }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); saveConfig(); }
+    for (const r of mediaRecs) { const f = frameById.get(r.frame); if (!f) continue; if (r.title) f.title = r.title; if (r.blob) applyByType(f, r.type, URL.createObjectURL(r.blob)); else drawPlate(f); }
+  }
+  buildWingEditor(); updateCount(); updateUndoBtn();
   if (!share && !config && !hadMedia) await addSamples();
   document.getElementById('loading').classList.add('hidden');
 }
