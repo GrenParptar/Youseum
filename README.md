@@ -15,7 +15,7 @@ A self‑contained, **first‑person virtual museum** you fill with your own pho
 - **First‑person tour** — WASD + mouse look (pointer lock) on desktop, on‑screen joystick + drag‑to‑look on touch devices.
 - **Your own media** — drag & drop, or look at a frame and click to hang a photo or video. Videos loop and can be played/paused with sound.
 - **Build it as you go** — face any wall and **left‑click for a hall** (a picture‑lined corridor) or **right‑click for a wing** (a full gallery room). Doorways are flanked by pictures on both sides.
-- **Themes & names** — 6 themes (Classic Hall, Modern White, The Garden, Midnight, Rose Gallery, Slate Loft); name each room.
+- **Themes, floors & walls** — 6 preset themes (Classic Hall, Modern White, The Garden, Midnight, Rose Gallery, Slate Loft), or pick a **floor design** (wood, marble, tile, dark, concrete) and **wall colour** independently. Matching floors flow seamlessly across adjoining halls and wings. Name each room.
 - **Background music** — built‑in generative ambient pad, or load your own track — globally or per room (crossfades as you walk between rooms).
 - **Find your way** — live minimap, a room **overview** with thumbnails, and a cinematic **guided auto‑tour**.
 - **Save & share** — everything persists in your browser; **export/import** a single `.museum` file (media + music included), or copy a **share link** that carries the layout (no server needed).
@@ -31,10 +31,12 @@ A self‑contained, **first‑person virtual museum** you fill with your own pho
 | Right‑click | Build a wing |
 | `E` | Play / pause video |
 | `M` | Mute · `T` Title a frame · `⌫` Clear a frame |
-| `T` (facing a wall) | Add / edit that wall's large heading · `⌫` to remove it |
+| Left‑click (facing a wall) | Open that wall's **options** — build a hall or wing, change the wall colour, add/edit its heading |
+| Left‑click (facing the floor) | Open the **floor** options — change the floor design (and wall colour) |
+| `T` / `⌫` (facing a wall) | Shortcut to add/edit or remove that wall's heading |
 | `Esc` | Pause & free the cursor (use the map/menu to jump around) |
 
-**Touch:** left thumb to move, drag the right side to look, **USE** to fill a frame or build a hall, **+WING** to build a room, **+TITLE** (shown when you face a wall) to add or edit that wall's heading. The **☰** menu holds everything else.
+**Touch:** left thumb to move, drag the right side to look. Face a wall or the floor and tap **USE** to open its options menu (build hall/wing, wall colour, floor design, heading). The **☰** menu holds everything else, including per‑room floor and wall pickers.
 
 ## How your media is stored
 

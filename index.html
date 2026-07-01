@@ -80,6 +80,17 @@
   #lbActions #lbRemove { border-color: #ff6b6b55; color: #ff9a9a; }
   #lbClose { position: fixed; top: 16px; right: 18px; width: 44px; height: 44px; border-radius: 12px; border: 1px solid rgba(255,255,255,.16); background: rgba(20,20,26,.72); color: #fff; font-size: 20px; cursor: pointer; z-index: 2; }
   #loading { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: #07070a; color: #9a9aa6; font-size: 15px; } #loading.hidden { display: none; }
+  /* Context menu — options for the wall / floor you're looking at (opened with USE) */
+  #ctxmenu { position: fixed; inset: 0; z-index: 33; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.5); backdrop-filter: blur(2px); padding: 4vh 4vw; }
+  #ctxmenu.open { display: flex; }
+  #ctxcard { width: min(360px, 92vw); max-height: 86vh; overflow-y: auto; background: rgba(18,18,24,.96); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 20px; box-shadow: 0 24px 70px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 10px; }
+  #ctxtitle { font: 650 18px Georgia, serif; color: #fff; text-align: center; margin-bottom: 4px; }
+  #ctxopts { display: flex; flex-direction: column; gap: 9px; }
+  .ctxlbl { font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #7a7a86; margin: 6px 0 1px; }
+  .ctxbtn { appearance: none; cursor: pointer; text-align: left; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color: #ececf2; font: 600 14px inherit; padding: 12px 14px; border-radius: 10px; } .ctxbtn:hover { background: rgba(255,255,255,.14); } .ctxbtn.accent { background: linear-gradient(180deg,#ffd98a,#ffc24d); color: #2a1c00; border-color: transparent; } .ctxbtn.warn { border-color: #ff6b6b55; color: #ff9a9a; }
+  .ctxrow { display: flex; flex-wrap: wrap; gap: 7px; }
+  .ctxswatch { cursor: pointer; border: 2px solid rgba(255,255,255,.16); border-radius: 9px; min-width: 38px; height: 38px; padding: 0 4px; font: 600 12px inherit; color: #ececf2; background: rgba(255,255,255,.06); } .ctxswatch.on { border-color: #ffc24d; box-shadow: 0 0 0 2px rgba(255,194,77,.35); } .ctxswatch.tex { min-width: 74px; height: 34px; }
+  #ctxcancel { cursor: pointer; margin-top: 6px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #cfcfd8; font: 600 14px inherit; padding: 11px; border-radius: 10px; } #ctxcancel:hover { background: rgba(255,255,255,.12); }
 </style>
 <script type="importmap">
 { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
@@ -172,6 +183,13 @@
       </div>
     </div>
   </div>
+  <div id="ctxmenu">
+    <div id="ctxcard">
+      <div id="ctxtitle">Options</div>
+      <div id="ctxopts"></div>
+      <button id="ctxcancel">Cancel</button>
+    </div>
+  </div>
   <div id="toast"></div>
   <div id="loading">Building your museum…</div>
   <input id="file" type="file" accept="image/*,video/*" multiple style="display:none" />
@@ -216,15 +234,22 @@ const floorGen = {
   marble: () => mkTex((x, s) => { x.fillStyle = '#e9e7e2'; x.fillRect(0, 0, s, s); for (let k = 0; k < 22; k++) { x.strokeStyle = `rgba(120,120,130,${Math.random() * .22})`; x.lineWidth = Math.random() * 2; x.beginPath(); let px = Math.random() * s; x.moveTo(px, 0); for (let py = 0; py < s; py += 20) { px += (Math.random() - .5) * 40; x.lineTo(px, py); } x.stroke(); } }, 1, 1),
   dark: () => mkTex((x, s) => { x.fillStyle = '#14151c'; x.fillRect(0, 0, s, s); for (let i = 0; i < 5000; i++) { x.fillStyle = `rgba(120,140,200,${Math.random() * .04})`; x.fillRect(Math.random() * s, Math.random() * s, 2, 2); } }, 1, 1),
   concrete: () => mkTex((x, s) => { x.fillStyle = '#3a3a3f'; x.fillRect(0, 0, s, s); for (let i = 0; i < 8000; i++) { const v = Math.random() * 36 - 18; x.fillStyle = `rgba(${128 + v},${128 + v},${133 + v},.05)`; x.fillRect(Math.random() * s, Math.random() * s, 2, 2); } }, 1, 1),
+  // Square stone tiles with grout. The grout fills the background and tiles are inset, so the
+  // pattern is seamless when the 512² canvas repeats (grout meets grout at every edge).
+  tile: () => mkTex((x, s) => { const n = 4, cell = s / n, pad = 4; x.fillStyle = '#2f3136'; x.fillRect(0, 0, s, s); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { const v = Math.random() * 20 - 10; x.fillStyle = `rgb(${208 + v},${203 + v},${193 + v})`; x.fillRect(i * cell + pad, j * cell + pad, cell - 2 * pad, cell - 2 * pad); x.fillStyle = 'rgba(0,0,0,.05)'; for (let k = 0; k < 22; k++) { const vx = i * cell + pad + Math.random() * (cell - 2 * pad), vy = j * cell + pad + Math.random() * (cell - 2 * pad); x.fillRect(vx, vy, 5 + Math.random() * 10, 1); } } }, 1, 1),
 };
 const floorCache = {}; const getFloor = (k) => floorCache[k] || (floorCache[k] = floorGen[k]());
-function floorTexFor(k, w, d) { const t = getFloor(k).clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / 3, d / 3); return t; }
+// One texture tile spans FLOORTILE world units. We world-align the UVs (offset derived from the
+// space's world origin) so board/tile seams line up continuously across adjacent hall/wing segments.
+const FLOORTILE = 3;
+function floorTexFor(k, s) { const w = s.x1 - s.x0, d = s.z1 - s.z0; const t = getFloor(k).clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / FLOORTILE, d / FLOORTILE); t.offset.set(s.x0 / FLOORTILE, -s.z1 / FLOORTILE); return t; }
 
 /* ===== Constants / styles ===== */
 // HALLLEN is kept a bit longer than a wing's footprint along the hall (RW) so a wing fits within
 // one hall segment's side wall, and wings on two adjacent hall segments don't clip into each other.
 const RW = 18, RD = 14, HALLW = 4.8, HALLLEN = 20, H = 5, DOORW = 3.2, DOORH = 3.0, T = 0.4;
-const STYLES = [
+// Preset themes: quick-apply bundles of wall color, floor, roughness, metalness, lighting
+const PRESETS = [
   { id: 'classic',  name: 'Classic Hall', wall: 0xd8cdb6, floor: 'wood',     rough: .8,  metal: 0,  light: 0xffe6c0, li: 46, accent: 0xffcf95 },
   { id: 'modern',   name: 'Modern White', wall: 0xe9e9ee, floor: 'marble',   rough: .35, metal: .1, light: 0xf2f5ff, li: 58, accent: 0xcfe0ff },
   { id: 'garden',   name: 'The Garden',   wall: 0xaec5a4, floor: 'wood',     rough: .8,  metal: 0,  light: 0xeafff0, li: 50, accent: 0xb6f0c4 },
@@ -232,7 +257,10 @@ const STYLES = [
   { id: 'rose',     name: 'Rose Gallery', wall: 0xe7c9c9, floor: 'marble',   rough: .4,  metal: .1, light: 0xffe9ec, li: 52, accent: 0xffc6cf },
   { id: 'slate',    name: 'Slate Loft',   wall: 0x6f7480, floor: 'concrete', rough: .7,  metal: .1, light: 0xeef2ff, li: 50, accent: 0xaebbd0 },
 ];
-const styleById = (id) => STYLES.find(s => s.id === id) || STYLES[0];
+const presetById = (id) => PRESETS.find(s => s.id === id) || PRESETS[0];
+// For backwards compatibility and as fallback
+const STYLES = PRESETS;
+const styleById = presetById;
 const SIDES = ['N', 'S', 'E', 'W'], OPP = { N: 'S', S: 'N', E: 'W', W: 'E' };
 const spaces = new Map(); const connections = []; let nextId = 0;
 let showSectionTitles = true;
@@ -289,26 +317,29 @@ function positionSectionTitle(s, side, m) {
   else { m.position.set(s.x0 + off, y, cz); m.rotation.y = Math.PI / 2; }
 }
 function updateSectionTitles(s) {
-  const st = styleById(s.styleId);
   for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (!m) continue; const txt = (s.sectionTitles?.[sd] || '').trim();
-    m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, st.accent); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+    m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, s.accent); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
   // The room-name sign lives on the N (z0) wall — hide it when that wall carries its own heading.
   if (s.signMesh) s.signMesh.visible = !(showSectionTitles && !!(s.sectionTitles?.N || '').trim());
 }
+// A point light of fixed intensity blows out narrow halls (surfaces sit close to it) while looking
+// right in room-sized wings. Scale intensity by floor area so a hall matches a wing's brightness
+// (and its floor stops reading as glossy from the over-bright specular highlight).
+function spaceLightIntensity(s) { const area = (s.x1 - s.x0) * (s.z1 - s.z0); return s.lightIntensity * clamp(area / (RW * RD), 0.45, 1.1); }
 function buildSpaceBase(s) {
-  const st = styleById(s.styleId); const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, w = s.x1 - s.x0, d = s.z1 - s.z0;
-  s.cx = cx; s.cz = cz; s.wallMat = new THREE.MeshStandardMaterial({ color: st.wall, roughness: .95 });
-  s.floorMat = new THREE.MeshStandardMaterial({ map: floorTexFor(st.floor, w, d), roughness: st.rough, metalness: st.metal });
-  const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), s.floorMat); fl.rotation.x = -Math.PI / 2; fl.position.set(cx, 0, cz); scene.add(fl); s.floor = fl;
+  const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, w = s.x1 - s.x0, d = s.z1 - s.z0;
+  s.cx = cx; s.cz = cz; s.wallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: s.wallRoughness });
+  s.floorMat = new THREE.MeshStandardMaterial({ map: floorTexFor(s.floorType, s), roughness: s.wallRoughness, metalness: s.wallMetalness });
+  const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), s.floorMat); fl.rotation.x = -Math.PI / 2; fl.position.set(cx, 0, cz); fl.userData.floorId = s.id; scene.add(fl); s.floor = fl;
   s.ceil = box(cx, H, cz, w, 0.3, d, ceilMat, false);
   const long = Math.max(w, d); s.strip = box(cx, H - 0.18, cz, w >= d ? long * .8 : 0.6, 0.12, w >= d ? 0.6 : long * .8, stripMat, false);
-  s.point = new THREE.PointLight(st.light, st.li, 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
-  s.spots = []; if (!LITE && s.type === 'room') for (const a of [['z', -1], ['z', 1], ['x', -1], ['x', 1]]) { const sp = new THREE.SpotLight(st.light, 9, 15, 0.7, 0.6, 1.2); sp.position.set(cx + (a[0] === 'x' ? a[1] * 2.2 : 0), H - 0.4, cz + (a[0] === 'z' ? a[1] * 2.2 : 0)); sp.target.position.set(cx + (a[0] === 'x' ? a[1] * w / 2 : 0), 1.7, cz + (a[0] === 'z' ? a[1] * d / 2 : 0)); scene.add(sp, sp.target); s.spots.push(sp); }
-  s.signMesh = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(6, w - 1), 1.4), new THREE.MeshBasicMaterial({ map: makeSignTex(s.name, st.accent), transparent: true })); s.signMesh.position.set(cx, 4.0, s.z0 + 0.06); scene.add(s.signMesh);
+  s.point = new THREE.PointLight(s.lightColor, spaceLightIntensity(s), 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
+  s.spots = []; if (!LITE && s.type === 'room') for (const a of [['z', -1], ['z', 1], ['x', -1], ['x', 1]]) { const sp = new THREE.SpotLight(s.lightColor, 9, 15, 0.7, 0.6, 1.2); sp.position.set(cx + (a[0] === 'x' ? a[1] * 2.2 : 0), H - 0.4, cz + (a[0] === 'z' ? a[1] * 2.2 : 0)); sp.target.position.set(cx + (a[0] === 'x' ? a[1] * w / 2 : 0), 1.7, cz + (a[0] === 'z' ? a[1] * d / 2 : 0)); scene.add(sp, sp.target); s.spots.push(sp); }
+  s.signMesh = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(6, w - 1), 1.4), new THREE.MeshBasicMaterial({ map: makeSignTex(s.name, s.accent), transparent: true })); s.signMesh.position.set(cx, 4.0, s.z0 + 0.06); scene.add(s.signMesh);
   s.sectionTitles = s.sectionTitles || { N: '', S: '', E: '', W: '' }; s.sectionMeshes = {};
-  for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', st.accent), transparent: true, depthWrite: false })); positionSectionTitle(s, sd, m); m.visible = false; scene.add(m); s.sectionMeshes[sd] = m; }
+  for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', s.accent), transparent: true, depthWrite: false })); positionSectionTitle(s, sd, m); m.visible = false; scene.add(m); s.sectionMeshes[sd] = m; }
   updateSectionTitles(s);
-  s.stars = new THREE.Group(); const sm = new THREE.MeshBasicMaterial({ color: 0xbcd0ff }); for (let i = 0; i < 26; i++) { const stt = new THREE.Mesh(new THREE.SphereGeometry(0.03 + Math.random() * 0.03, 6, 6), sm); stt.position.set(cx + (Math.random() - .5) * w * .9, H - 0.25, cz + (Math.random() - .5) * d * .9); s.stars.add(stt); } scene.add(s.stars); s.stars.visible = st.floor === 'dark';
+  s.stars = new THREE.Group(); const sm = new THREE.MeshBasicMaterial({ color: 0xbcd0ff }); for (let i = 0; i < 26; i++) { const stt = new THREE.Mesh(new THREE.SphereGeometry(0.03 + Math.random() * 0.03, 6, 6), sm); stt.position.set(cx + (Math.random() - .5) * w * .9, H - 0.25, cz + (Math.random() - .5) * d * .9); s.stars.add(stt); } scene.add(s.stars); s.stars.visible = s.floorType === 'dark';
   s.sides = { N: [], S: [], E: [], W: [] }; s.walls = { N: [], S: [], E: [], W: [] }; s.frames = { N: [], S: [], E: [], W: [] };
 }
 function wallSeg(s, side, a, b, inset) { // solid wall segment + frames; a..b along the side's axis. inset pushes a shared wall onto its own side so adjacent walls sit back-to-back instead of overlapping.
@@ -333,12 +364,43 @@ function buildWallSide(s, side) {
 }
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
 function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
+// Header (wall over the door) + trim jambs on both sides + a top lintel so the trim wraps all the
+// way around the opening. Inset-aware so it lands on the same plane as this space's wall segments.
 function buildDoorway(s, side, lo, hi) { const mat = s.wallMat; const ms = [];
-  if (side === 'N' || side === 'S') { const z = side === 'N' ? s.z0 : s.z1; ms.push(box((lo + hi) / 2, (DOORH + H) / 2, z, hi - lo, H - DOORH, T, mat, false), box(lo, DOORH / 2, z, 0.14, DOORH, 0.5, doorTrimMat, false), box(hi, DOORH / 2, z, 0.14, DOORH, 0.5, doorTrimMat, false)); }
-  else { const x = side === 'E' ? s.x1 : s.x0; ms.push(box(x, (DOORH + H) / 2, (lo + hi) / 2, T, H - DOORH, hi - lo, mat, false), box(x, DOORH / 2, lo, 0.5, DOORH, 0.14, doorTrimMat, false), box(x, DOORH / 2, hi, 0.5, DOORH, 0.14, doorTrimMat, false)); }
+  const inset = (side === s.parentSide && (s.sides?.[side]?.length > 0)) ? T : 0;
+  const dir = (side === 'N' || side === 'W') ? 1 : -1; const midY = (DOORH + H) / 2, hdrH = H - DOORH;
+  if (side === 'N' || side === 'S') { const z = (side === 'N' ? s.z0 : s.z1) + dir * inset;
+    ms.push(box((lo + hi) / 2, midY, z, hi - lo, hdrH, T, mat, false)); // wall continues over the door
+    ms.push(box(lo, DOORH / 2, z, 0.16, DOORH, 0.52, doorTrimMat, false), box(hi, DOORH / 2, z, 0.16, DOORH, 0.52, doorTrimMat, false)); // side jambs
+    ms.push(box((lo + hi) / 2, DOORH + 0.02, z, (hi - lo) + 0.16, 0.16, 0.52, doorTrimMat, false)); } // top lintel
+  else { const x = (side === 'E' ? s.x1 : s.x0) + dir * inset;
+    ms.push(box(x, midY, (lo + hi) / 2, T, hdrH, hi - lo, mat, false));
+    ms.push(box(x, DOORH / 2, lo, 0.52, DOORH, 0.16, doorTrimMat, false), box(x, DOORH / 2, hi, 0.52, DOORH, 0.16, doorTrimMat, false));
+    ms.push(box(x, DOORH + 0.02, (lo + hi) / 2, 0.52, 0.16, (hi - lo) + 0.16, doorTrimMat, false)); }
   return ms;
 }
-function applyTheme(s, save = true) { const st = styleById(s.styleId); s.wallMat.color.set(st.wall); s.floorMat.map = floorTexFor(st.floor, s.x1 - s.x0, s.z1 - s.z0); s.floorMat.roughness = st.rough; s.floorMat.metalness = st.metal; s.floorMat.needsUpdate = true; s.point.color.set(st.light); s.point.intensity = st.li; s.spots.forEach(sp => sp.color.set(st.light)); s.stars.visible = st.floor === 'dark'; s.signMesh.material.map = makeSignTex(s.name, st.accent); s.signMesh.material.needsUpdate = true; updateSectionTitles(s); if (s.id === lastId) document.getElementById('roomlabel').textContent = s.name; if (save) saveConfig(); }
+// A hall extended straight off the end of another hall — the opening spans the full shared wall —
+// reads as one long corridor, so it gets no header/trim (just an open span).
+function isSeamlessConn(c) { const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); if (!a || !b || a.type !== 'hall' || b.type !== 'hall') return false; const full = (c.side === 'N' || c.side === 'S') ? (a.x1 - a.x0) : (a.z1 - a.z0); return Math.abs((c.hi - c.lo) - full) < 0.06; }
+// Build the doorway on BOTH rooms' walls so it reads as a proper opening from either side; seamless
+// hall extensions get nothing. Returns the combined mesh list to store on the connection.
+function buildConnDoors(c) { if (isSeamlessConn(c)) return []; const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); let ms = a ? buildDoorway(a, c.side, c.lo, c.hi) : []; if (b) ms = ms.concat(buildDoorway(b, OPP[c.side], c.lo, c.hi)); return ms; }
+function applyTheme(s, save = true) {
+  s.wallMat.color.set(s.wallColor);
+  s.floorMat.map = floorTexFor(s.floorType, s);
+  s.floorMat.roughness = s.wallRoughness;
+  s.floorMat.metalness = s.wallMetalness;
+  s.floorMat.needsUpdate = true;
+  s.point.color.set(s.lightColor);
+  s.point.intensity = spaceLightIntensity(s);
+  s.spots.forEach(sp => sp.color.set(s.lightColor));
+  s.stars.visible = s.floorType === 'dark';
+  s.signMesh.material.map = makeSignTex(s.name, s.accent);
+  s.signMesh.material.needsUpdate = true;
+  updateSectionTitles(s);
+  if (s.id === lastId) document.getElementById('roomlabel').textContent = s.name;
+  if (save) saveConfig();
+}
 function overlaps(x0, x1, z0, z1) { const e = 0.4; for (const s of spaces.values()) if (x0 < s.x1 - e && x1 > s.x0 + e && z0 < s.z1 - e && z1 > s.z0 + e) return true; return false; }
 
 function buildSpaceFrom(type, parent, side, uHit) {
@@ -357,14 +419,15 @@ function buildSpaceFrom(type, parent, side, uHit) {
   if (overlaps(x0, x1, z0, z1)) { toast('No room to build there — try another wall or spot'); return; }
   GT.stop();
   const cnt = [...spaces.values()].filter(s => s.type === type).length + 1; const name = (type === 'hall' ? 'Hall ' : 'Wing ') + cnt;
-  const s = { id: 's' + (nextId++), type, name, styleId: STYLES[spaces.size % STYLES.length].id, x0, x1, z0, z1 };
+  const preset = PRESETS[spaces.size % PRESETS.length];
+  const s = { id: 's' + (nextId++), type, name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0, x1, z0, z1 };
   spaces.set(s.id, s); buildSpaceBase(s);
   const [olo, ohi] = [u - half, u + half];
   parent.sides[side].push([olo, ohi]); rebuildWallSide(parent, side);
   s.sides[OPP[side]].push([olo, ohi]); s.parentSide = OPP[side];
   for (const sd of SIDES) buildWallSide(s, sd);
-  const dm = buildDoorway(parent, side, olo, ohi);
-  connections.push({ a: parent.id, side, lo: olo, hi: ohi, doorMeshes: dm });
+  const conn = { a: parent.id, side, lo: olo, hi: ohi }; conn.doorMeshes = buildConnDoors(conn);
+  connections.push(conn);
   applyTheme(s, false); saveConfig(); buildWingEditor(); updateCount();
   toast('New ' + type + ' built — walk through the opening');
   pushUndo('build ' + type, () => deleteSpace(s.id, { undo: false }));
@@ -457,7 +520,7 @@ async function deleteSpace(id, opts = {}) {
   if (opts.confirm && !confirm('Delete "' + s.name + '" and everything in it?')) return;
   GT.stop();
   let snap = null;
-  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, styleId: s.styleId, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) } }, conns: [], media }; }
+  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) } }, conns: [], media }; }
   const involved = connections.filter(c => c.a === id || spaceOnOtherSide(c) === id);
   const reseal = involved.map(c => ({ otherId: (c.a === id) ? spaceOnOtherSide(c) : c.a, otherSide: (c.a === id) ? OPP[c.side] : c.side, lo: c.lo, hi: c.hi, doorMeshes: c.doorMeshes }));
   if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }));
@@ -474,7 +537,7 @@ function rebuildSpace(snap) {
   for (const sd of SIDES) buildWallSide(s, sd);
   const done = new Set();
   for (const c of snap.conns) { const nbId = (c.a === s.id) ? spaceOnOtherSide(c) : c.a; const nbSide = (c.a === s.id) ? OPP[c.side] : c.side; const key = nbId + nbSide; if (spaces.get(nbId) && !done.has(key)) { rebuildWallSide(spaces.get(nbId), nbSide); done.add(key); } }
-  for (const c of snap.conns) { const conn = connections.find(x => x.a === c.a && x.side === c.side && Math.abs(x.lo - c.lo) < 0.05); const A = spaces.get(c.a); if (A && conn) conn.doorMeshes = buildDoorway(A, c.side, c.lo, c.hi); }
+  for (const c of snap.conns) { const conn = connections.find(x => x.a === c.a && x.side === c.side && Math.abs(x.lo - c.lo) < 0.05); if (conn) conn.doorMeshes = buildConnDoors(conn); }
   applyTheme(s, false);
   for (const rec of snap.media) { const f = frameById.get(rec.frame); if (f) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); DB.put(rec).catch(() => {}); drawPlate(f); } }
   saveConfig(); buildWingEditor(); updateCount();
@@ -482,7 +545,7 @@ function rebuildSpace(snap) {
 const updateCount = () => document.getElementById('count').textContent = `${frames.filter(f => f.filled).length} / ${frames.length} filled`;
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
-const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, styleId: s.styleId, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
+const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
 
 /* ===== sample art ===== */
 function drawSample(g, w, h, k) { const pals = [['#ff9a4d', '#ffd86b'], ['#4d79ff', '#9b6bff'], ['#0f2027', '#2c5364'], ['#34d399', '#a7f3d0'], ['#f472b6', '#c084fc'], ['#0ea5e9', '#2dd4bf']][k % 6]; const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, pals[0]); grad.addColorStop(1, pals[1]); g.fillStyle = grad; g.fillRect(0, 0, w, h); g.globalAlpha = .18; for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#000000'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, 0, 7); g.fill(); } g.globalAlpha = 1; if (k === 5) { g.fillStyle = 'rgba(0,0,0,.32)'; g.fillRect(w * .12, h * .34, w * .76, h * .32); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 60px Georgia, serif'; g.fillText('Your Museum', w / 2, h * .47); g.font = '400 26px system-ui'; g.fillText('face a wall & click to build', w / 2, h * .57); } else { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 8; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, Math.random() * h); g.bezierCurveTo(w * .3, Math.random() * h, w * .6, Math.random() * h, w, Math.random() * h); g.stroke(); } } }
@@ -497,15 +560,15 @@ function resume() { if (!isTouch) canvas.requestPointerLock?.(); }
 function exitTour() { GT.stop(); exiting = true; inTour = false; paused = false; document.body.classList.remove('tour', 'paused'); if (document.pointerLockElement) document.exitPointerLock(); overlay.classList.remove('hidden'); }
 document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement === canvas) { inTour = true; paused = false; document.body.classList.add('tour'); document.body.classList.remove('paused'); overlay.classList.add('hidden'); } else { inTour = false; if (exiting) { exiting = false; document.body.classList.remove('tour', 'paused'); } else if (started) { paused = true; document.body.classList.add('tour', 'paused'); } } });
 document.addEventListener('mousemove', (e) => { if (document.pointerLockElement !== canvas) return; if (GT.active) GT.stop(); yaw -= e.movementX * 0.0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * 0.0022)); });
-addEventListener('keydown', (e) => { keys[e.code] = true; if (lightboxOpen) { if (e.code === 'Escape') { e.preventDefault(); closeLightbox(); } return; } if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) { e.preventDefault(); doUndo(); return; } if (e.code === 'Escape') return; if (!inTour) return; if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code) && GT.active) GT.stop(); if (e.code === 'KeyE') toggleVideo(); if (e.code === 'KeyM') toggleMute(); if (e.code === 'KeyT') { if (lookingAt) titleFrame(); else if (lookingWall) titleWall(); } if (e.code === 'Backspace') { if (lookingAt) { clearFrameUndoable(lookingAt); toast('Frame cleared'); } else if (lookingWall && wallHeadingText(lookingWall).trim()) { setWallHeading(lookingWall, ''); toast('Heading removed'); } } });
+addEventListener('keydown', (e) => { keys[e.code] = true; if (ctxOpen) { if (e.code === 'Escape') { e.preventDefault(); closeCtxMenu(); } return; } if (lightboxOpen) { if (e.code === 'Escape') { e.preventDefault(); closeLightbox(); } return; } if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) { e.preventDefault(); doUndo(); return; } if (e.code === 'Escape') return; if (!inTour) return; if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code) && GT.active) GT.stop(); if (e.code === 'KeyE') toggleVideo(); if (e.code === 'KeyM') toggleMute(); if (e.code === 'KeyT') { if (lookingAt) titleFrame(); else if (lookingWall) titleWall(); } if (e.code === 'Backspace') { if (lookingAt) { clearFrameUndoable(lookingAt); toast('Frame cleared'); } else if (lookingWall && wallHeadingText(lookingWall).trim()) { setWallHeading(lookingWall, ''); toast('Heading removed'); } } });
 addEventListener('keyup', (e) => keys[e.code] = false);
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-canvas.addEventListener('mousedown', (e) => { if (document.pointerLockElement === canvas) { if (e.button === 2) { if (lookingAt) buildAtFrame('wing', lookingAt); else buildAtWall('wing'); } else interact(); } else if (paused && !lightboxOpen) resume(); });
+canvas.addEventListener('mousedown', (e) => { if (document.pointerLockElement === canvas) { if (e.button === 2) { if (lookingAt) buildAtFrame('wing', lookingAt); else buildAtWall('wing'); } else interact(); } else if (paused && !lightboxOpen && !ctxOpen) resume(); });
 /* touch */
 const joyEl = document.getElementById('joy'), knob = document.getElementById('knob'); let joyId = null, joyX = 0, joyY = 0; const joyR = 55; let lookId = null, lastLX = 0, lastLY = 0;
 const joyCenter = () => { const r = joyEl.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
-addEventListener('touchstart', (e) => { if (!inTour || lightboxOpen) return; for (const t of e.changedTouches) { const c = joyCenter(); if (joyId === null && Math.hypot(t.clientX - c.x, t.clientY - c.y) < 110) { joyId = t.identifier; updJoy(t, c); if (GT.active) GT.stop(); } else if (lookId === null) { lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
-addEventListener('touchmove', (e) => { if (lightboxOpen) return; for (const t of e.changedTouches) { if (t.identifier === joyId) { e.preventDefault(); updJoy(t, joyCenter()); } else if (t.identifier === lookId) { if (GT.active) GT.stop(); yaw -= (t.clientX - lastLX) * 0.005; pitch = Math.max(-1.45, Math.min(1.45, pitch - (t.clientY - lastLY) * 0.005)); lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
+addEventListener('touchstart', (e) => { if (!inTour || lightboxOpen || ctxOpen) return; for (const t of e.changedTouches) { const c = joyCenter(); if (joyId === null && Math.hypot(t.clientX - c.x, t.clientY - c.y) < 110) { joyId = t.identifier; updJoy(t, c); if (GT.active) GT.stop(); } else if (lookId === null) { lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
+addEventListener('touchmove', (e) => { if (lightboxOpen || ctxOpen) return; for (const t of e.changedTouches) { if (t.identifier === joyId) { e.preventDefault(); updJoy(t, joyCenter()); } else if (t.identifier === lookId) { if (GT.active) GT.stop(); yaw -= (t.clientX - lastLX) * 0.005; pitch = Math.max(-1.45, Math.min(1.45, pitch - (t.clientY - lastLY) * 0.005)); lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
 function endTouch(e) { for (const t of e.changedTouches) { if (t.identifier === joyId) { joyId = null; joyX = joyY = 0; knob.style.transform = 'translate(0,0)'; } if (t.identifier === lookId) lookId = null; } }
 addEventListener('touchend', endTouch); addEventListener('touchcancel', endTouch);
 function updJoy(t, c) { let dx = t.clientX - c.x, dy = t.clientY - c.y; const d = Math.hypot(dx, dy); if (d > joyR) { dx *= joyR / d; dy *= joyR / d; } knob.style.transform = `translate(${dx}px,${dy}px)`; joyX = dx / joyR; joyY = dy / joyR; }
@@ -514,19 +577,23 @@ document.getElementById('wingBtn').addEventListener('click', () => buildAtWall('
 document.getElementById('headBtn').addEventListener('click', () => { if (lookingWall) titleWall(); });
 
 /* ===== look + interact ===== */
-const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null;
+const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null, lookingFloor = null;
 const promptEl = document.getElementById('prompt'), crossEl = document.getElementById('crosshair'), headBtnEl = document.getElementById('headBtn');
 function updateLook() {
-  raycaster.setFromCamera({ x: 0, y: 0 }, camera); const arts = frames.map(f => f.art); const objs = [...arts, ...wallMeshes];
-  const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null;
-  if (hit) { const ai = arts.indexOf(hit.object); if (ai >= 0 && hit.distance < 6.5) lookingAt = frames[ai]; else if (hit.object.userData.add && hit.distance < 5.5) { const ad = hit.object.userData.add; const u = (ad.side === 'N' || ad.side === 'S') ? hit.point.x : hit.point.z; lookingWall = { id: ad.id, side: ad.side, u }; } }
+  raycaster.setFromCamera({ x: 0, y: 0 }, camera); const arts = frames.map(f => f.art); const flrs = []; spaces.forEach(s => { if (s.floor) flrs.push(s.floor); }); const objs = [...arts, ...wallMeshes, ...flrs];
+  const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null; lookingFloor = null;
+  if (hit) { const ai = arts.indexOf(hit.object);
+    if (ai >= 0 && hit.distance < 6.5) lookingAt = frames[ai];
+    else if (hit.object.userData.add && hit.distance < 5.5) { const ad = hit.object.userData.add; const u = (ad.side === 'N' || ad.side === 'S') ? hit.point.x : hit.point.z; lookingWall = { id: ad.id, side: ad.side, u }; }
+    else if (hit.object.userData.floorId && hit.distance < 8) lookingFloor = { id: hit.object.userData.floorId }; }
   if (inTour && !GT.active && lookingAt) { crossEl.classList.add('active'); if (!lookingAt.filled) showPrompt('<b>' + (isTouch ? 'USE' : 'Click') + '</b> to hang a photo, video or GIF'); else showPrompt(isTouch ? '<b>USE</b> to view' : '<b>Click</b> to view · <b>R-click</b> build a wing here · <b>⌫</b> clear'); }
-  else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); const has = wallHeadingText(lookingWall).trim(); showPrompt(isTouch ? '<b>USE</b> hall · <b>＋WING</b> room · <b>＋TITLE</b> heading' : '<b>L-click</b> hall · <b>R-click</b> wing · <b>T</b> ' + (has ? 'edit' : 'add') + ' heading' + (has ? ' · <b>⌫</b> remove' : '')); }
+  else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> for wall options' : '<b>Click</b> for wall options (hall, wing, colour, heading)'); }
+  else if (inTour && !GT.active && lookingFloor) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> to change the floor' : '<b>Click</b> to change the floor design'); }
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
   if (isTouch) { const showHead = inTour && !GT.active && !!lookingWall; document.body.classList.toggle('lookwall', showHead); if (showHead) headBtnEl.textContent = wallHeadingText(lookingWall).trim() ? '✎ TITLE' : '＋ TITLE'; }
 }
 const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
-function interact() { if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else openLightbox(f); } else if (lookingWall) buildAtWall('hall'); }
+function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else openLightbox(f); } else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
 function buildAtWall(type) { if (!lookingWall) return; const p = spaces.get(lookingWall.id); if (p) buildSpaceFrom(type, p, lookingWall.side, lookingWall.u); }
 function frameSpace(f) { return spaces.get(f.id.split(':')[0]); }
 function frameSide(f) { return f.id.split(':')[1]; }
@@ -559,7 +626,43 @@ function wallHeadingText(lw) { const s = lw && spaces.get(lw.id); return s ? (s.
 function setWallHeading(lw, text) { const s = spaces.get(lw.id); if (!s) return; s.sectionTitles = s.sectionTitles || { N: '', S: '', E: '', W: '' }; const side = lw.side, prev = s.sectionTitles[side] || '', next = text.trim(); if (prev === next) return;
   s.sectionTitles[side] = next; if (next && !showSectionTitles) { showSectionTitles = true; const cb = document.getElementById('sectionTitlesOn'); if (cb) cb.checked = true; spaces.forEach(updateSectionTitles); } else updateSectionTitles(s); saveConfig();
   pushUndo('wall heading', () => { const sp = spaces.get(lw.id); if (!sp) return; sp.sectionTitles = sp.sectionTitles || { N: '', S: '', E: '', W: '' }; sp.sectionTitles[side] = prev; updateSectionTitles(sp); saveConfig(); }); }
-function titleWall() { const lw = lookingWall; if (!lw || !spaces.get(lw.id)) return; const wasLocked = document.pointerLockElement === canvas; if (wasLocked) document.exitPointerLock(); setTimeout(() => { const t = prompt('Heading for this wall (leave blank to remove):', wallHeadingText(lw)); if (t !== null) setWallHeading(lw, t); if (wasLocked && !isTouch) canvas.requestPointerLock?.(); }, 60); }
+function titleWall(lw = lookingWall) { if (!lw || !spaces.get(lw.id)) return; if (document.pointerLockElement === canvas) document.exitPointerLock(); setTimeout(() => { const t = prompt('Heading for this wall (leave blank to remove):', wallHeadingText(lw)); if (t !== null) setWallHeading(lw, t); if (!isTouch && started) canvas.requestPointerLock?.(); }, 60); }
+
+/* ===== context menu — options for the wall / floor you're looking at (opened with USE) ===== */
+let ctxOpen = false, ctxTarget = null;
+const ctxMenuEl = document.getElementById('ctxmenu');
+function ctxAddBtn(parent, label, cls, fn) { const b = document.createElement('button'); b.className = 'ctxbtn' + (cls ? ' ' + cls : ''); b.textContent = label; b.onclick = fn; parent.appendChild(b); }
+function ctxAddSwatches(parent, label, items, isTex, onPick) {
+  const lbl = document.createElement('div'); lbl.className = 'ctxlbl'; lbl.textContent = label; parent.appendChild(lbl);
+  const row = document.createElement('div'); row.className = 'ctxrow';
+  items.forEach(it => { const b = document.createElement('button'); b.className = 'ctxswatch' + (isTex ? ' tex' : '') + (it.on ? ' on' : '');
+    if (isTex) b.textContent = it.label; else { b.style.background = hex(it.value); b.title = it.label; }
+    b.onclick = () => { row.querySelectorAll('.ctxswatch').forEach(x => x.classList.remove('on')); b.classList.add('on'); onPick(it); };
+    row.appendChild(b); });
+  parent.appendChild(row);
+}
+function openCtxMenu(kind, target) {
+  const s = spaces.get(target.id); if (!s) return;
+  ctxTarget = { kind, id: target.id, side: target.side, u: target.u };
+  const optsEl = document.getElementById('ctxopts'); optsEl.innerHTML = '';
+  document.getElementById('ctxtitle').textContent = s.name + (kind === 'wall' ? ' · Wall' : ' · Floor');
+  if (kind === 'wall') {
+    ctxAddBtn(optsEl, '＋ Build a hall here', 'accent', () => { closeCtxMenu(); buildSpaceFrom('hall', s, target.side, target.u); });
+    ctxAddBtn(optsEl, '＋ Build a wing here', 'accent', () => { closeCtxMenu(); buildSpaceFrom('wing', s, target.side, target.u); });
+    ctxAddSwatches(optsEl, 'Wall colour', WALL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === s.wallColor })), false, (c) => { s.wallColor = c.value; applyTheme(s); buildWingEditor(); });
+    const has = wallHeadingText({ id: target.id, side: target.side }).trim();
+    ctxAddBtn(optsEl, has ? '✎ Edit wall heading' : '＋ Add wall heading', '', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleWall({ id: target.id, side: target.side, u: target.u }); });
+    if (has) ctxAddBtn(optsEl, '⌫ Remove heading', 'warn', () => { setWallHeading({ id: target.id, side: target.side }, ''); closeCtxMenu(); toast('Heading removed'); });
+  } else {
+    ctxAddSwatches(optsEl, 'Floor design', FLOOR_TYPES.map(t => ({ label: t.name, value: t.value, on: t.value === s.floorType })), true, (t) => { s.floorType = t.value; applyTheme(s); buildWingEditor(); });
+    ctxAddSwatches(optsEl, 'Wall colour', WALL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === s.wallColor })), false, (c) => { s.wallColor = c.value; applyTheme(s); buildWingEditor(); });
+  }
+  ctxMenuEl.classList.add('open'); ctxOpen = true; document.body.classList.remove('lookwall'); promptEl.classList.remove('show');
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+function closeCtxMenu() { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; if (!isTouch && started) try { canvas.requestPointerLock?.(); } catch (e) {} }
+document.getElementById('ctxcancel').onclick = closeCtxMenu;
+ctxMenuEl.addEventListener('mousedown', (e) => { if (e.target === ctxMenuEl) closeCtxMenu(); });
 
 /* ===== file input + drop ===== */
 const fileInput = document.getElementById('file'); let addTarget = null, addScope = 'all';
@@ -575,7 +678,7 @@ const blobToDataURL = (b) => new Promise((ok) => { const r = new FileReader(); r
 async function exportGallery() { toast('Packing your museum…'); const recs = await DB.all(); const out = []; for (const r of recs) { if (r.blob) out.push({ frame: r.frame, type: r.type, title: r.title || '', mime: r.blob.type, data: await blobToDataURL(r.blob) }); else out.push({ frame: r.frame, config: r.config }); } const json = JSON.stringify({ app: 'my-museum', version: 5, records: out }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = 'my-museum.museum'; a.click(); toast(`Exported ${out.length} item${out.length !== 1 ? 's' : ''} (incl. media + music)`); }
 document.getElementById('importFile').addEventListener('change', async (e) => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; try { const data = JSON.parse(await file.text()); const recs = data.records || data.items; if (!recs) throw 0; toast('Importing…'); for (const it of recs) { if (it.config) { await DB.put({ frame: it.frame, config: it.config }); continue; } const blob = await (await fetch(it.data)).blob(); await DB.put({ frame: it.frame, type: it.type, blob, title: it.title || '' }); } location.hash = ''; setTimeout(() => location.reload(), 400); } catch { toast('Could not read that file'); } });
 async function saveGallery() { for (const f of frames) if (f.filled) { const rec = await DB.get(f.id); if (rec) { rec.title = f.title; await DB.put(rec); } } await saveConfig(); toast('Saved to this browser'); }
-function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.styleId, s.x0, s.x1, s.z0, s.z1, s.sectionTitles]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
+function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
 function readShare() { const m = location.hash.match(/m=([^&]+)/); if (!m) return null; try { return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); } catch { return null; } }
 
 /* ===== music ===== */
@@ -618,13 +721,37 @@ document.getElementById('musicVol').addEventListener('input', (e) => Music.setVo
 document.getElementById('musicFile').addEventListener('change', (e) => { if (e.target.files[0]) Music.setTrack(musicScope, e.target.files[0]); e.target.value = ''; });
 
 function sortedSpaces() { return [...spaces.values()].sort((a, b) => a.cz - b.cz || a.cx - b.cx); }
+// Wall colors and floor types for independent selection
+const WALL_COLORS = [
+  { name: 'Cream', value: 0xd8cdb6 },
+  { name: 'Light Grey', value: 0xe9e9ee },
+  { name: 'Sage Green', value: 0xaec5a4 },
+  { name: 'Deep Navy', value: 0x252c41 },
+  { name: 'Dusty Rose', value: 0xe7c9c9 },
+  { name: 'Cool Grey', value: 0x6f7480 },
+  { name: 'White', value: 0xfafbff },
+  { name: 'Warm Beige', value: 0xece6d8 },
+];
+const FLOOR_TYPES = [
+  { name: 'Wood', value: 'wood' },
+  { name: 'Marble', value: 'marble' },
+  { name: 'Tile', value: 'tile' },
+  { name: 'Dark', value: 'dark' },
+  { name: 'Concrete', value: 'concrete' },
+];
 function buildWingEditor() {
   const host = document.getElementById('wings'); host.innerHTML = '';
-  sortedSpaces().forEach((s) => { const opts = STYLES.map(o => `<option value="${o.id}"${o.id === s.styleId ? ' selected' : ''}>${o.name}</option>`).join(''); const hasMusic = !!Music.tracks[s.id];
+  sortedSpaces().forEach((s) => {
+    const presetOpts = PRESETS.map(o => `<option value="${o.id}"${o.floor === s.floorType && o.wall === s.wallColor ? ' selected' : ''}>${o.name}</option>`).join('');
+    const floorOpts = FLOOR_TYPES.map(o => `<option value="${o.value}"${o.value === s.floorType ? ' selected' : ''}>${o.name}</option>`).join('');
+    const wallOpts = WALL_COLORS.map(o => `<option value="${o.value}"${o.value === s.wallColor ? ' selected' : ''}>${o.name}</option>`).join('');
+    const hasMusic = !!Music.tracks[s.id];
     const el = document.createElement('div'); el.className = 'wing';
-    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"></div><select class="wstyle">${opts}</select><div class="wbtns"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
+    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"></div><div style="font-size:11px;color:#7a7a86;margin-bottom:2px;text-transform:uppercase;letter-spacing:1.5px">Preset themes</div><select class="wpreset">${presetOpts}</select><div style="font-size:11px;color:#7a7a86;margin:8px 0 2px;text-transform:uppercase;letter-spacing:1.5px">Floor design</div><select class="wfloor">${floorOpts}</select><div style="font-size:11px;color:#7a7a86;margin:8px 0 2px;text-transform:uppercase;letter-spacing:1.5px">Wall color</div><select class="wwall">${wallOpts}</select><div class="wbtns" style="margin-top:9px"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
     el.querySelector('.wname').onchange = (ev) => { s.name = ev.target.value.trim() || s.type; applyTheme(s); };
-    el.querySelector('.wstyle').onchange = (ev) => { s.styleId = ev.target.value; applyTheme(s); };
+    el.querySelector('.wpreset').onchange = (ev) => { const p = PRESETS.find(x => x.id === ev.target.value); if (p) { s.floorType = p.floor; s.wallColor = p.wall; s.wallRoughness = p.rough; s.wallMetalness = p.metal; s.lightColor = p.light; s.lightIntensity = p.li; s.accent = p.accent; applyTheme(s); buildWingEditor(); } };
+    el.querySelector('.wfloor').onchange = (ev) => { s.floorType = ev.target.value; applyTheme(s); };
+    el.querySelector('.wwall').onchange = (ev) => { s.wallColor = parseInt(ev.target.value, 10); applyTheme(s); };
     el.querySelector('[data-go]').onclick = () => { if (!started) enterTour(); teleport(s.id); closeMenu(); };
     el.querySelector('[data-mus]').onclick = () => { musicScope = s.id; document.getElementById('musicFile').click(); };
     el.querySelector('[data-musx]')?.addEventListener('click', () => Music.clearTrack(s.id));
@@ -633,10 +760,10 @@ function buildWingEditor() {
 }
 function openOverview() {
   const grid = document.getElementById('ogrid'); grid.innerHTML = '';
-  sortedSpaces().forEach((s) => { const st = styleById(s.styleId); const rf = spaceFramesList(s); const filled = rf.filter(f => f.filled);
+  sortedSpaces().forEach((s) => { const rf = spaceFramesList(s); const filled = rf.filter(f => f.filled);
     const thumbs = []; for (let i = 0; i < 3; i++) { const f = filled[i]; if (f && f.srcURL && !f.video) thumbs.push(`<div style="background-image:url('${f.srcURL}')"></div>`); else if (f && f.video) thumbs.push('<div>🎬</div>'); else thumbs.push('<div>·</div>'); }
     const card = document.createElement('div'); card.className = 'ocard';
-    card.innerHTML = `<div class="obar" style="background:${hex(st.accent)}"></div><div class="obody"><div class="otitle">${s.name}<span class="ochip">${s.type}</span></div><div class="ometa">${st.name} · ${filled.length}/${rf.length} filled</div><div class="othumbs">${thumbs.join('')}</div></div>`;
+    card.innerHTML = `<div class="obar" style="background:${hex(s.accent)}"></div><div class="obody"><div class="otitle">${s.name}<span class="ochip">${s.type}</span></div><div class="ometa">${s.floorType} floor · ${filled.length}/${rf.length} filled</div><div class="othumbs">${thumbs.join('')}</div></div>`;
     card.onclick = () => { document.getElementById('overview').classList.remove('open'); if (!started) enterTour(); teleport(s.id); };
     grid.appendChild(card); });
   document.getElementById('overview').classList.add('open');
@@ -650,7 +777,7 @@ const map = document.getElementById('map'), mctx = map.getContext('2d'); const M
 function worldBounds() { let a = 1e9, b = -1e9, c = 1e9, d = -1e9; spaces.forEach(s => { a = Math.min(a, s.x0); b = Math.max(b, s.x1); c = Math.min(c, s.z0); d = Math.max(d, s.z1); }); return { a, b, c, d }; }
 function mapXform() { const w = worldBounds(); const MW = map.width - MAPPAD * 2, MH = map.height - MAPPAD * 2; const s = Math.min(MW / Math.max(1, w.b - w.a), MH / Math.max(1, w.d - w.c)); const ox = MAPPAD + (MW - (w.b - w.a) * s) / 2, oz = MAPPAD + (MH - (w.d - w.c) * s) / 2; return { w, s, ox, oz }; }
 function drawMap() { const { w, s, ox, oz } = mapXform(); const X = (x) => ox + (x - w.a) * s, Z = (z) => oz + (z - w.c) * s; mctx.clearRect(0, 0, map.width, map.height); const cur = currentId();
-  spaces.forEach(sp => { const st = styleById(sp.styleId); mctx.fillStyle = sp.id === cur ? 'rgba(255,210,122,.25)' : 'rgba(255,255,255,.06)'; mctx.fillRect(X(sp.x0), Z(sp.z0), (sp.x1 - sp.x0) * s, (sp.z1 - sp.z0) * s); mctx.strokeStyle = hex(st.accent) + '88'; mctx.lineWidth = 1; mctx.strokeRect(X(sp.x0) + .5, Z(sp.z0) + .5, (sp.x1 - sp.x0) * s - 1, (sp.z1 - sp.z0) * s - 1); });
+  spaces.forEach(sp => { mctx.fillStyle = sp.id === cur ? 'rgba(255,210,122,.25)' : 'rgba(255,255,255,.06)'; mctx.fillRect(X(sp.x0), Z(sp.z0), (sp.x1 - sp.x0) * s, (sp.z1 - sp.z0) * s); mctx.strokeStyle = hex(sp.accent) + '88'; mctx.lineWidth = 1; mctx.strokeRect(X(sp.x0) + .5, Z(sp.z0) + .5, (sp.x1 - sp.x0) * s - 1, (sp.z1 - sp.z0) * s - 1); });
   mctx.strokeStyle = '#06060a'; mctx.lineWidth = 3; connections.forEach(cn => { const sp = spaces.get(cn.a); if (!sp) return; if (cn.side === 'N' || cn.side === 'S') { const z = cn.side === 'N' ? sp.z0 : sp.z1; mctx.beginPath(); mctx.moveTo(X(cn.lo), Z(z)); mctx.lineTo(X(cn.hi), Z(z)); mctx.stroke(); } else { const x = cn.side === 'E' ? sp.x1 : sp.x0; mctx.beginPath(); mctx.moveTo(X(x), Z(cn.lo)); mctx.lineTo(X(x), Z(cn.hi)); mctx.stroke(); } });
   const px = X(camera.position.x), pz = Z(camera.position.z); mctx.save(); mctx.translate(px, pz); mctx.rotate(-yaw); mctx.fillStyle = '#ffd27a'; mctx.beginPath(); mctx.moveTo(0, -6); mctx.lineTo(4, 4); mctx.lineTo(-4, 4); mctx.closePath(); mctx.fill(); mctx.restore(); }
 map.addEventListener('click', (e) => { const r = map.getBoundingClientRect(); const { w, s, ox, oz } = mapXform(); const fx = (e.clientX - r.left) / r.width * map.width, fy = (e.clientY - r.top) / r.height * map.height; const wx = w.a + (fx - ox) / s, wz = w.c + (fy - oz) / s; for (const sp of spaces.values()) if (wx >= sp.x0 && wx <= sp.x1 && wz >= sp.z0 && wz <= sp.z1) { if (!started) enterTour(); teleport(sp.id); break; } });
@@ -680,7 +807,7 @@ const gifFrustum = new THREE.Frustum(); const gifProjM = new THREE.Matrix4(); co
 function updateGifs(dt) { if (!gifAnims.length) return; camera.updateMatrixWorld(); gifProjM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); gifFrustum.setFromProjectionMatrix(gifProjM);
   for (const a of gifAnims) { const p = a.frame.group.position; const inView = camera.position.distanceTo(p) < GIF_VIEW_DIST && gifFrustum.containsPoint(p); updateGif(a, dt, inView); } }
 function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.05); camera.rotation.set(pitch, yaw, 0);
-  if (inTour && !paused && !lightboxOpen) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight']) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
+  if (inTour && !paused && !lightboxOpen && !ctxOpen) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight']) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
     camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); } }
   if (++mapTick % 3 === 0 && (inTour || paused)) drawMap();
   updateGifs(dt);
@@ -693,21 +820,42 @@ let toastTimer; function toast(msg) { const el = document.getElementById('toast'
 function buildFromConfig(cfg) {
   if (cfg.showSectionTitles != null) showSectionTitles = !!cfg.showSectionTitles;
   const stCb = document.getElementById('sectionTitlesOn'); if (stCb) stCb.checked = showSectionTitles;
-  cfg.spaces.forEach(o => spaces.set(o.id, { id: o.id, type: o.type, name: o.name, styleId: o.styleId, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' } }));
+  cfg.spaces.forEach(o => {
+    let s;
+    if (o.floorType) {
+      // New format: independent floor/wall
+      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' } };
+    } else {
+      // Old format: styleId only — convert to new format
+      const preset = presetById(o.styleId);
+      s = { id: o.id, type: o.type, name: o.name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' } };
+    }
+    spaces.set(s.id, s);
+  });
   nextId = cfg.nextId || spaces.size;
   spaces.forEach(buildSpaceBase);
   (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); spaces.get(nb).parentSide = OPP[c.side]; } });
   spaces.forEach(s => { for (const sd of SIDES) buildWallSide(s, sd); });
-  connections.forEach(c => { const a = spaces.get(c.a); c.doorMeshes = buildDoorway(a, c.side, c.lo, c.hi); });
+  connections.forEach(c => { c.doorMeshes = buildConnDoors(c); });
   spaces.forEach(s => applyTheme(s, false));
 }
 async function boot() {
   const share = readShare(); const recs = share ? [] : await DB.all(); let config = null; const mediaRecs = []; let hadMedia = false;
   for (const r of recs) { if (r.frame === 'config') config = r.config; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) { mediaRecs.push(r); hadMedia = true; } }
-  if (share) { const cfg = { spaces: share.s.map(a => ({ id: a[0], type: a[1], name: a[2], styleId: a[3], x0: a[4], x1: a[5], z0: a[6], z1: a[7], sectionTitles: a[8] || { N: '', S: '', E: '', W: '' } })), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
+  if (share) { const cfg = { spaces: share.s.map(a => {
+    // Handle both old format (styleId) and new format (independent floor/wall)
+    if (a.length === 9) {
+      // Old format: [id, type, name, styleId, x0, x1, z0, z1, sectionTitles]
+      const preset = presetById(a[3]);
+      return { id: a[0], type: a[1], name: a[2], floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: a[4], x1: a[5], z0: a[6], z1: a[7], sectionTitles: a[8] || { N: '', S: '', E: '', W: '' } };
+    } else {
+      // New format: [id, type, name, floorType, wallColor, wallRoughness, wallMetalness, lightColor, lightIntensity, accent, x0, x1, z0, z1, sectionTitles]
+      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' } };
+    }
+  }), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
   else {
     if (config && config.spaces?.length) buildFromConfig(config);
-    else { const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', styleId: 'classic', x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2 }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); saveConfig(); }
+    else { const preset = PRESETS[0]; const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2 }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); saveConfig(); }
     for (const r of mediaRecs) { const f = frameById.get(r.frame); if (!f) continue; if (r.title) f.title = r.title; if (r.blob) applyByType(f, r.type, URL.createObjectURL(r.blob)); else drawPlate(f); }
   }
   buildWingEditor(); updateCount(); updateUndoBtn();
