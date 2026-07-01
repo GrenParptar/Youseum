@@ -65,6 +65,19 @@
   #wingBtn { position: absolute; right: 40px; bottom: 158px; width: 72px; height: 56px; border-radius: 14px; border: 2px solid rgba(180,210,255,.7); background: rgba(120,150,255,.18); color: #cfe0ff; font: 700 13px inherit; display: none; } body.tour.touch #wingBtn { display: block; } #wingBtn:active { background: rgba(120,150,255,.4); }
   #toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%) translateY(20px); background: rgba(20,20,26,.96); border: 1px solid rgba(255,255,255,.12); color: #f0f0f4; padding: 11px 18px; border-radius: 10px; font-size: 14px; z-index: 32; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: 80vw; text-align: center; } #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   #drop { position: fixed; inset: 0; z-index: 18; pointer-events: none; display: grid; place-items: center; background: rgba(255,210,122,.10); border: 3px dashed rgba(255,210,122,.7); opacity: 0; transition: opacity .15s; } #drop.show { opacity: 1; } #drop span { background: rgba(12,12,16,.9); color: #ffd27a; padding: 14px 22px; border-radius: 12px; font-size: 16px; font-weight: 600; }
+  /* Lightbox — closer view of a piece */
+  #lightbox { position: fixed; inset: 0; z-index: 34; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(0,0,0,.62); backdrop-filter: blur(2px); padding: 3vh 3vw; }
+  #lightbox.open { display: flex; }
+  #lbStage { max-width: 92vw; max-height: 74vh; display: flex; align-items: center; justify-content: center; }
+  #lbStage .lbmedia { max-width: 92vw; max-height: 74vh; border-radius: 8px; box-shadow: 0 24px 70px rgba(0,0,0,.65); background: #0c0c10; }
+  #lbInfo { text-align: center; color: #f0f0f4; max-width: 92vw; }
+  #lbTitle { font: 650 22px Georgia, serif; color: #fff; }
+  #lbMeta { font-size: 12.5px; color: #b7b7c2; letter-spacing: 1.5px; text-transform: uppercase; margin-top: 5px; }
+  #lbActions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 13px; }
+  #lbActions button { cursor: pointer; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.08); color: #e7e7ee; font: 600 13px inherit; padding: 9px 14px; border-radius: 9px; }
+  #lbActions button:hover { background: rgba(255,255,255,.16); }
+  #lbActions #lbRemove { border-color: #ff6b6b55; color: #ff9a9a; }
+  #lbClose { position: fixed; top: 16px; right: 18px; width: 44px; height: 44px; border-radius: 12px; border: 1px solid rgba(255,255,255,.16); background: rgba(20,20,26,.72); color: #fff; font-size: 20px; cursor: pointer; z-index: 2; }
   #loading { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: #07070a; color: #9a9aa6; font-size: 15px; } #loading.hidden { display: none; }
 </style>
 <script type="importmap">
@@ -141,6 +154,20 @@
       <button id="start" class="btn primary">Enter the museum</button>
       <button id="startAdd" class="btn ghost">＋ Add photos / videos first</button>
       <p class="hint">Face any wall and click to extend a <b>hall</b> from that spot, or right-click for a <b>wing</b>. Pictures hang on both sides of every doorway.</p>
+    </div>
+  </div>
+  <div id="lightbox">
+    <button id="lbClose" title="Close">✕</button>
+    <div id="lbStage"></div>
+    <div id="lbInfo">
+      <div id="lbTitle">Untitled</div>
+      <div id="lbMeta"></div>
+      <div id="lbActions">
+        <button id="lbTitleBtn">✎ Title</button>
+        <button id="lbRemove">🗑 Remove media</button>
+        <button id="lbHall">＋ Hall in its place</button>
+        <button id="lbWing">＋ Wing in its place</button>
+      </div>
     </div>
   </div>
   <div id="toast"></div>
@@ -257,26 +284,25 @@ function buildSpaceBase(s) {
   s.stars = new THREE.Group(); const sm = new THREE.MeshBasicMaterial({ color: 0xbcd0ff }); for (let i = 0; i < 26; i++) { const stt = new THREE.Mesh(new THREE.SphereGeometry(0.03 + Math.random() * 0.03, 6, 6), sm); stt.position.set(cx + (Math.random() - .5) * w * .9, H - 0.25, cz + (Math.random() - .5) * d * .9); s.stars.add(stt); } scene.add(s.stars); s.stars.visible = st.floor === 'dark';
   s.sides = { N: [], S: [], E: [], W: [] }; s.walls = { N: [], S: [], E: [], W: [] }; s.frames = { N: [], S: [], E: [], W: [] };
 }
-function wallSeg(s, side, a, b) { // solid wall segment + frames; a..b along the side's axis
-  const mat = s.wallMat; let mesh;
-  if (side === 'N') mesh = box((a + b) / 2, H / 2, s.z0, b - a, H, T, mat); else if (side === 'S') mesh = box((a + b) / 2, H / 2, s.z1, b - a, H, T, mat);
-  else if (side === 'E') mesh = box(s.x1, H / 2, (a + b) / 2, T, H, b - a, mat); else mesh = box(s.x0, H / 2, (a + b) / 2, T, H, b - a, mat);
+function wallSeg(s, side, a, b, inset) { // solid wall segment + frames; a..b along the side's axis. inset pushes a shared wall onto its own side so adjacent walls sit back-to-back instead of overlapping.
+  const mat = s.wallMat; const dir = (side === 'N' || side === 'W') ? 1 : -1; let mesh, wp;
+  if (side === 'N' || side === 'S') { wp = (side === 'N' ? s.z0 : s.z1) + dir * inset; mesh = box((a + b) / 2, H / 2, wp, b - a, H, T, mat); }
+  else { wp = (side === 'E' ? s.x1 : s.x0) + dir * inset; mesh = box(wp, H / 2, (a + b) / 2, T, H, b - a, mat); }
   mesh.userData.add = { id: s.id, side }; wallMeshes.push(mesh); s.walls[side].push(mesh);
-  // baseboard
-  const inSign = (side === 'N' || side === 'W') ? 1 : -1; const bb = (side === 'N' || side === 'S') ? box((a + b) / 2, 0.12, (side === 'N' ? s.z0 : s.z1) + inSign * (T / 2 + 0.03), b - a, 0.24, 0.06, baseMat, false) : box((side === 'E' ? s.x1 : s.x0) + inSign * (T / 2 + 0.03), 0.12, (a + b) / 2, 0.06, 0.24, b - a, baseMat, false); mesh.userData.bb = bb;
-  // frames along segment
+  const bb = (side === 'N' || side === 'S') ? box((a + b) / 2, 0.12, wp + dir * (T / 2 + 0.03), b - a, 0.24, 0.06, baseMat, false) : box(wp + dir * (T / 2 + 0.03), 0.12, (a + b) / 2, 0.06, 0.24, b - a, baseMat, false); mesh.userData.bb = bb;
   const len = b - a, margin = 0.7, usable = len - 2 * margin; if (usable < 1.3) return;
   const n = Math.max(1, Math.floor(usable / 4.2));
   for (let k = 0; k < n; k++) { const u = a + margin + usable * (k + 0.5) / n; let x, y = 1.75, z, ry;
-    if (side === 'N') { x = u; z = s.z0 + T / 2 + 0.04; ry = 0; } else if (side === 'S') { x = u; z = s.z1 - T / 2 - 0.04; ry = Math.PI; }
-    else if (side === 'E') { x = s.x1 - T / 2 - 0.04; z = u; ry = -Math.PI / 2; } else { x = s.x0 + T / 2 + 0.04; z = u; ry = Math.PI / 2; }
+    if (side === 'N') { x = u; z = wp + T / 2 + 0.04; ry = 0; } else if (side === 'S') { x = u; z = wp - T / 2 - 0.04; ry = Math.PI; }
+    else if (side === 'E') { x = wp - T / 2 - 0.04; z = u; ry = -Math.PI / 2; } else { x = wp + T / 2 + 0.04; z = u; ry = Math.PI / 2; }
     s.frames[side].push(addFrame(`${s.id}:${side}:${k}_${Math.round(u * 10)}`, x, y, z, ry)); }
 }
 function buildWallSide(s, side) {
   const axisIsX = (side === 'N' || side === 'S'); const lo = axisIsX ? s.x0 : s.z0, hi = axisIsX ? s.x1 : s.z1;
+  const inset = (side === s.parentSide && s.sides[side].length > 0) ? T : 0;
   const ops = s.sides[side].slice().sort((p, q) => p[0] - q[0]); let cur = lo;
-  for (const [a, b] of ops) { if (a > cur + 0.05) wallSeg(s, side, cur, a); cur = Math.max(cur, b); }
-  if (cur < hi - 0.05) wallSeg(s, side, cur, hi);
+  for (const [a, b] of ops) { if (a > cur + 0.05) wallSeg(s, side, cur, a, inset); cur = Math.max(cur, b); }
+  if (cur < hi - 0.05) wallSeg(s, side, cur, hi, inset);
 }
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
 function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
@@ -304,7 +330,7 @@ function buildSpaceFrom(type, parent, side, uHit) {
   spaces.set(s.id, s); buildSpaceBase(s);
   const [olo, ohi] = [u - half, u + half];
   parent.sides[side].push([olo, ohi]); rebuildWallSide(parent, side);
-  s.sides[OPP[side]].push([olo, ohi]);
+  s.sides[OPP[side]].push([olo, ohi]); s.parentSide = OPP[side];
   for (const sd of SIDES) buildWallSide(s, sd);
   const dm = buildDoorway(parent, side, olo, ohi);
   connections.push({ a: parent.id, side, lo: olo, hi: ohi, doorMeshes: dm });
@@ -363,7 +389,7 @@ async function deleteSpace(id, opts = {}) {
 }
 function rebuildSpace(snap) {
   const s = { ...snap.s }; spaces.set(s.id, s); buildSpaceBase(s);
-  for (const c of snap.conns) { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const A = spaces.get(c.a); if (A) A.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb && spaces.get(nb)) spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); }
+  for (const c of snap.conns) { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const A = spaces.get(c.a); if (A) A.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb && spaces.get(nb)) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); spaces.get(nb).parentSide = OPP[c.side]; } }
   for (const sd of SIDES) buildWallSide(s, sd);
   const done = new Set();
   for (const c of snap.conns) { const nbId = (c.a === s.id) ? spaceOnOtherSide(c) : c.a; const nbSide = (c.a === s.id) ? OPP[c.side] : c.side; const key = nbId + nbSide; if (spaces.get(nbId) && !done.has(key)) { rebuildWallSide(spaces.get(nbId), nbSide); done.add(key); } }
@@ -390,15 +416,15 @@ function resume() { if (!isTouch) canvas.requestPointerLock?.(); }
 function exitTour() { GT.stop(); exiting = true; inTour = false; paused = false; document.body.classList.remove('tour', 'paused'); if (document.pointerLockElement) document.exitPointerLock(); overlay.classList.remove('hidden'); }
 document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement === canvas) { inTour = true; paused = false; document.body.classList.add('tour'); document.body.classList.remove('paused'); overlay.classList.add('hidden'); } else { inTour = false; if (exiting) { exiting = false; document.body.classList.remove('tour', 'paused'); } else if (started) { paused = true; document.body.classList.add('tour', 'paused'); } } });
 document.addEventListener('mousemove', (e) => { if (document.pointerLockElement !== canvas) return; if (GT.active) GT.stop(); yaw -= e.movementX * 0.0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * 0.0022)); });
-addEventListener('keydown', (e) => { keys[e.code] = true; if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) { e.preventDefault(); doUndo(); return; } if (e.code === 'Escape') return; if (!inTour) return; if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code) && GT.active) GT.stop(); if (e.code === 'KeyE') toggleVideo(); if (e.code === 'KeyM') toggleMute(); if (e.code === 'KeyT') titleFrame(); if (e.code === 'Backspace' && lookingAt) { clearFrameUndoable(lookingAt); toast('Frame cleared'); } });
+addEventListener('keydown', (e) => { keys[e.code] = true; if (lightboxOpen) { if (e.code === 'Escape') { e.preventDefault(); closeLightbox(); } return; } if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) { e.preventDefault(); doUndo(); return; } if (e.code === 'Escape') return; if (!inTour) return; if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code) && GT.active) GT.stop(); if (e.code === 'KeyE') toggleVideo(); if (e.code === 'KeyM') toggleMute(); if (e.code === 'KeyT') titleFrame(); if (e.code === 'Backspace' && lookingAt) { clearFrameUndoable(lookingAt); toast('Frame cleared'); } });
 addEventListener('keyup', (e) => keys[e.code] = false);
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-canvas.addEventListener('mousedown', (e) => { if (document.pointerLockElement === canvas) { if (e.button === 2) buildAtWall('wing'); else interact(); } else if (paused) resume(); });
+canvas.addEventListener('mousedown', (e) => { if (document.pointerLockElement === canvas) { if (e.button === 2) { if (lookingAt) buildAtFrame('wing', lookingAt); else buildAtWall('wing'); } else interact(); } else if (paused && !lightboxOpen) resume(); });
 /* touch */
 const joyEl = document.getElementById('joy'), knob = document.getElementById('knob'); let joyId = null, joyX = 0, joyY = 0; const joyR = 55; let lookId = null, lastLX = 0, lastLY = 0;
 const joyCenter = () => { const r = joyEl.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
-addEventListener('touchstart', (e) => { if (!inTour) return; for (const t of e.changedTouches) { const c = joyCenter(); if (joyId === null && Math.hypot(t.clientX - c.x, t.clientY - c.y) < 110) { joyId = t.identifier; updJoy(t, c); if (GT.active) GT.stop(); } else if (lookId === null) { lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
-addEventListener('touchmove', (e) => { for (const t of e.changedTouches) { if (t.identifier === joyId) { e.preventDefault(); updJoy(t, joyCenter()); } else if (t.identifier === lookId) { if (GT.active) GT.stop(); yaw -= (t.clientX - lastLX) * 0.005; pitch = Math.max(-1.45, Math.min(1.45, pitch - (t.clientY - lastLY) * 0.005)); lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
+addEventListener('touchstart', (e) => { if (!inTour || lightboxOpen) return; for (const t of e.changedTouches) { const c = joyCenter(); if (joyId === null && Math.hypot(t.clientX - c.x, t.clientY - c.y) < 110) { joyId = t.identifier; updJoy(t, c); if (GT.active) GT.stop(); } else if (lookId === null) { lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
+addEventListener('touchmove', (e) => { if (lightboxOpen) return; for (const t of e.changedTouches) { if (t.identifier === joyId) { e.preventDefault(); updJoy(t, joyCenter()); } else if (t.identifier === lookId) { if (GT.active) GT.stop(); yaw -= (t.clientX - lastLX) * 0.005; pitch = Math.max(-1.45, Math.min(1.45, pitch - (t.clientY - lastLY) * 0.005)); lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
 function endTouch(e) { for (const t of e.changedTouches) { if (t.identifier === joyId) { joyId = null; joyX = joyY = 0; knob.style.transform = 'translate(0,0)'; } if (t.identifier === lookId) lookId = null; } }
 addEventListener('touchend', endTouch); addEventListener('touchcancel', endTouch);
 function updJoy(t, c) { let dx = t.clientX - c.x, dy = t.clientY - c.y; const d = Math.hypot(dx, dy); if (d > joyR) { dx *= joyR / d; dy *= joyR / d; } knob.style.transform = `translate(${dx}px,${dy}px)`; joyX = dx / joyR; joyY = dy / joyR; }
@@ -412,13 +438,36 @@ function updateLook() {
   raycaster.setFromCamera({ x: 0, y: 0 }, camera); const arts = frames.map(f => f.art); const objs = [...arts, ...wallMeshes];
   const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null;
   if (hit) { const ai = arts.indexOf(hit.object); if (ai >= 0 && hit.distance < 6.5) lookingAt = frames[ai]; else if (hit.object.userData.add && hit.distance < 5.5) { const ad = hit.object.userData.add; const u = (ad.side === 'N' || ad.side === 'S') ? hit.point.x : hit.point.z; lookingWall = { id: ad.id, side: ad.side, u }; } }
-  if (inTour && !GT.active && lookingAt) { crossEl.classList.add('active'); if (!lookingAt.filled) showPrompt('<b>' + (isTouch ? 'USE' : 'Click') + '</b> to hang a photo or video'); else if (lookingAt.video) showPrompt(isTouch ? '<b>USE</b> play / pause' : '<b>E</b> play/pause · <b>M</b> mute · <b>T</b> title · <b>⌫</b> clear'); else showPrompt(isTouch ? 'Filled' : '<b>T</b> title · <b>⌫</b> clear'); }
+  if (inTour && !GT.active && lookingAt) { crossEl.classList.add('active'); if (!lookingAt.filled) showPrompt('<b>' + (isTouch ? 'USE' : 'Click') + '</b> to hang a photo, video or GIF'); else showPrompt(isTouch ? '<b>USE</b> to view' : '<b>Click</b> to view · <b>R-click</b> build a wing here · <b>⌫</b> clear'); }
   else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> build hall · <b>＋WING</b> build room' : '<b>L-click</b> build a hall · <b>R-click</b> build a wing'); }
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
 }
 const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
-function interact() { if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else if (f.video) toggleVideo(); } else if (lookingWall) buildAtWall('hall'); }
+function interact() { if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else openLightbox(f); } else if (lookingWall) buildAtWall('hall'); }
 function buildAtWall(type) { if (!lookingWall) return; const p = spaces.get(lookingWall.id); if (p) buildSpaceFrom(type, p, lookingWall.side, lookingWall.u); }
+function frameSpace(f) { return spaces.get(f.id.split(':')[0]); }
+function frameSide(f) { return f.id.split(':')[1]; }
+function buildAtFrame(type, f) { const sp = frameSpace(f), side = frameSide(f); if (!sp) return; const u = (side === 'N' || side === 'S') ? f.group.position.x : f.group.position.z; buildSpaceFrom(type, sp, side, u); }
+
+/* ===== lightbox (closer view) ===== */
+let lightboxOpen = false, lbFrame = null;
+function openLightbox(f) {
+  lbFrame = f; const stage = document.getElementById('lbStage'); stage.innerHTML = ''; let el;
+  if (f.video) { el = document.createElement('video'); el.src = f.srcURL; el.loop = true; el.controls = true; el.autoplay = true; el.playsInline = true; setAudibleVideo(null); }
+  else { el = document.createElement('img'); el.src = f.srcURL; }
+  el.className = 'lbmedia'; stage.appendChild(el);
+  const sp = frameSpace(f); document.getElementById('lbTitle').textContent = f.title || 'Untitled';
+  document.getElementById('lbMeta').textContent = (f.video ? 'Video' : f.gif ? 'GIF' : 'Photo') + (sp ? ' · ' + sp.name : '');
+  document.getElementById('lightbox').classList.add('open'); lightboxOpen = true;
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+function closeLightbox() { const st = document.getElementById('lbStage'); st.querySelectorAll('video').forEach(v => v.pause()); st.innerHTML = ''; document.getElementById('lightbox').classList.remove('open'); lightboxOpen = false; lbFrame = null; if (!isTouch && started) try { canvas.requestPointerLock?.(); } catch (e) {} }
+document.getElementById('lbClose').onclick = closeLightbox;
+document.getElementById('lightbox').addEventListener('mousedown', (e) => { if (e.target.id === 'lightbox') closeLightbox(); });
+document.getElementById('lbTitleBtn').onclick = () => { const f = lbFrame; if (!f) return; const t = prompt('Title for this piece:', f.title || ''); if (t !== null) { f.title = t.trim(); drawPlate(f); DB.get(f.id).then(rec => { if (rec) { rec.title = f.title; DB.put(rec); } }); document.getElementById('lbTitle').textContent = f.title || 'Untitled'; } };
+document.getElementById('lbRemove').onclick = () => { const f = lbFrame; closeLightbox(); if (f) { clearFrameUndoable(f); toast('Removed media'); } };
+document.getElementById('lbHall').onclick = () => { const f = lbFrame; closeLightbox(); if (f) buildAtFrame('hall', f); };
+document.getElementById('lbWing').onclick = () => { const f = lbFrame; closeLightbox(); if (f) buildAtFrame('wing', f); };
 const toggleVideo = () => { const f = lookingAt; if (f?.video) f.video.paused ? f.video.play() : f.video.pause(); };
 const toggleMute = () => { const f = lookingAt; if (!f?.video) return; if (audibleVideo === f && !f.video.muted) { f.video.muted = true; audibleVideo = null; toast('Muted'); } else { setAudibleVideo(f); toast('Sound on (other videos muted)'); } };
 function titleFrame() { const f = lookingAt; if (!f) return; const wasLocked = document.pointerLockElement === canvas; if (wasLocked) document.exitPointerLock(); setTimeout(async () => { const t = prompt('Title for this frame:', f.title || ''); if (t !== null) { f.title = t.trim(); drawPlate(f); const rec = await DB.get(f.id); if (rec) { rec.title = f.title; DB.put(rec); } } if (wasLocked && !isTouch) canvas.requestPointerLock?.(); }, 60); }
@@ -538,7 +587,7 @@ const clock = new THREE.Clock(); const fwd = new THREE.Vector3(), right = new TH
 function collide(pos) { for (const b of colliders) { const cx = Math.max(b.min.x, Math.min(pos.x, b.max.x)), cz = Math.max(b.min.z, Math.min(pos.z, b.max.z)); const dx = pos.x - cx, dz = pos.z - cz, d2 = dx * dx + dz * dz; if (d2 < PR * PR) { if (d2 > 1e-6) { const d = Math.sqrt(d2); pos.x = cx + dx / d * PR; pos.z = cz + dz / d * PR; } else pos.x = cx + PR; } } }
 let lastId = null, mapTick = 0;
 function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.05); camera.rotation.set(pitch, yaw, 0);
-  if (inTour && !paused) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight']) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
+  if (inTour && !paused && !lightboxOpen) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight']) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
     camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); } }
   if (++mapTick % 3 === 0 && (inTour || paused)) drawMap();
   for (const a of gifAnims) { if (a.img.naturalWidth) { a.cx.drawImage(a.img, 0, 0, a.cv.width, a.cv.height); a.tex.needsUpdate = true; } }
@@ -552,7 +601,7 @@ function buildFromConfig(cfg) {
   cfg.spaces.forEach(o => spaces.set(o.id, { id: o.id, type: o.type, name: o.name, styleId: o.styleId, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1 }));
   nextId = cfg.nextId || spaces.size;
   spaces.forEach(buildSpaceBase);
-  (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); });
+  (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); spaces.get(nb).parentSide = OPP[c.side]; } });
   spaces.forEach(s => { for (const sd of SIDES) buildWallSide(s, sd); });
   connections.forEach(c => { const a = spaces.get(c.a); c.doorMeshes = buildDoorway(a, c.side, c.lo, c.hi); });
   spaces.forEach(s => applyTheme(s, false));
