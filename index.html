@@ -51,6 +51,11 @@
   .wing select { background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px; font: 500 12.5px inherit; flex: 1; }
   .wing .wbtns { display: flex; gap: 6px; } .wing .wbtns button { flex: 1; cursor: pointer; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #dcdce4; font: 600 12px inherit; padding: 7px; border-radius: 7px; } .wing .wbtns button:hover { background: rgba(255,255,255,.14); } .wing .wbtns button.has { border-color: #ffc24d55; color: #ffd27a; } .wing .wbtns button.del { border-color: #ff6b6b55; color: #ff9a9a; } .wing .wbtns button.del:hover { background: rgba(255,107,107,.16); }
   #menu button.item:disabled { opacity: .5; cursor: default; }
+  .wing .wtitles { display: flex; flex-direction: column; gap: 5px; margin-top: 2px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,.08); }
+  .wing .wtlbl { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: #7a7a86; }
+  .wing .wtrow { display: flex; align-items: center; gap: 7px; }
+  .wing .wtrow .wtside { width: 24px; text-align: center; font: 700 11px inherit; color: #ffd27a; background: rgba(255,210,122,.14); border-radius: 5px; padding: 4px 0; }
+  .wing input.wtitle { flex: 1; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 6px 8px; font: 500 12.5px inherit; min-width: 0; }
   #overview { position: fixed; inset: 0; z-index: 28; background: rgba(7,7,11,.94); backdrop-filter: blur(6px); display: none; flex-direction: column; padding: 22px; } #overview.open { display: flex; }
   #overview .ohead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; } #overview h2 { font-size: 22px; } #overview h2 .accent { color: #ffd27a; }
   #overview .oclose { cursor: pointer; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); color: #fff; font: 600 14px inherit; padding: 9px 14px; border-radius: 9px; }
@@ -113,6 +118,7 @@
     </div>
     <div class="grp">
       <div class="lbl">Rooms &amp; halls — name, theme &amp; music</div>
+      <div class="musicrow" style="margin-bottom:2px"><label class="switch"><input type="checkbox" id="sectionTitlesOn" checked><span></span></label><span>Show wall headings (large titles)</span></div>
       <div id="wings"></div>
       <div class="lbl" style="margin-top:2px;color:#6a6a76">Build more by facing a wall: <b style="color:#9a9aa6">left-click for a hall, right-click for a wing</b> (touch: USE / WING).</div>
     </div>
@@ -231,6 +237,7 @@ const STYLES = [
 const styleById = (id) => STYLES.find(s => s.id === id) || STYLES[0];
 const SIDES = ['N', 'S', 'E', 'W'], OPP = { N: 'S', S: 'N', E: 'W', W: 'E' };
 const spaces = new Map(); const connections = []; let nextId = 0;
+let showSectionTitles = true;
 const YAWFOR = { N: 0, S: Math.PI, E: -Math.PI / 2, W: Math.PI / 2 };
 
 /* ===== collider-aware box ===== */
@@ -248,6 +255,9 @@ const ceilMat = new THREE.MeshStandardMaterial({ color: 0x101018, roughness: 1 }
 /* ===== sign + frame helpers ===== */
 function hex(c) { return '#' + (c >>> 0).toString(16).padStart(6, '0').slice(-6); }
 function makeSignTex(label, accent) { const c = document.createElement('canvas'); c.width = 1024; c.height = 256; const x = c.getContext('2d'); x.clearRect(0, 0, 1024, 256); x.font = '600 92px Georgia, serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = hex(accent); x.fillText((label || 'Room').toUpperCase(), 512, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
+// Wall-section heading: a large title above the media. Uses a dark outline + shadow so the
+// accent-coloured text stays legible against both bright and dark gallery walls.
+function makeHeadingTex(label, accent) { const c = document.createElement('canvas'); c.width = 1024; c.height = 256; const x = c.getContext('2d'); x.clearRect(0, 0, 1024, 256); const txt = (label || '').toUpperCase(); x.font = '700 108px Georgia, serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineJoin = 'round'; x.lineWidth = 16; x.strokeStyle = 'rgba(8,7,4,.72)'; x.strokeText(txt, 512, 132); x.shadowColor = 'rgba(0,0,0,.5)'; x.shadowBlur = 10; x.shadowOffsetY = 3; x.fillStyle = hex(accent); x.fillText(txt, 512, 132); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; }
 function placeholderTex() { const c = document.createElement('canvas'); c.width = 512; c.height = 384; const x = c.getContext('2d'); x.fillStyle = '#3b3b45'; x.fillRect(0, 0, 512, 384); x.strokeStyle = '#5c5c6a'; x.lineWidth = 4; x.setLineDash([14, 12]); x.strokeRect(22, 22, 468, 340); x.setLineDash([]); x.textAlign = 'center'; x.fillStyle = '#8e8e9c'; x.font = '600 30px system-ui'; x.fillText('Empty frame', 256, 180); x.font = '20px system-ui'; x.fillStyle = '#74747f'; x.fillText('add a photo or video', 256, 218); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
 function makePlate() { const c = document.createElement('canvas'); c.width = 512; c.height = 110; const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return { canvas: c, ctx: c.getContext('2d'), tex: tx }; }
 function roundRect(x, a, b, w, h, r) { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); }
@@ -271,6 +281,20 @@ function removeFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.sr
 
 /* ===== spaces, walls, doorways ===== */
 const wallMeshes = [];
+function positionSectionTitle(s, side, m) {
+  const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, wallLen = (side === 'N' || side === 'S') ? s.x1 - s.x0 : s.z1 - s.z0;
+  const h = Math.min(0.66, Math.max(0.42, (wallLen - 0.8) / 4)); m.scale.set(h * 4, h, 1);
+  const off = T / 2 + 0.06, y = 3.42;
+  if (side === 'N') { m.position.set(cx, y, s.z0 + off); m.rotation.y = 0; }
+  else if (side === 'S') { m.position.set(cx, y, s.z1 - off); m.rotation.y = Math.PI; }
+  else if (side === 'E') { m.position.set(s.x1 - off, y, cz); m.rotation.y = -Math.PI / 2; }
+  else { m.position.set(s.x0 + off, y, cz); m.rotation.y = Math.PI / 2; }
+}
+function updateSectionTitles(s) {
+  const st = styleById(s.styleId);
+  for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (!m) continue; const txt = (s.sectionTitles?.[sd] || '').trim();
+    m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, st.accent); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+}
 function buildSpaceBase(s) {
   const st = styleById(s.styleId); const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, w = s.x1 - s.x0, d = s.z1 - s.z0;
   s.cx = cx; s.cz = cz; s.wallMat = new THREE.MeshStandardMaterial({ color: st.wall, roughness: .95 });
@@ -281,6 +305,9 @@ function buildSpaceBase(s) {
   s.point = new THREE.PointLight(st.light, st.li, 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
   s.spots = []; if (!LITE && s.type === 'room') for (const a of [['z', -1], ['z', 1], ['x', -1], ['x', 1]]) { const sp = new THREE.SpotLight(st.light, 9, 15, 0.7, 0.6, 1.2); sp.position.set(cx + (a[0] === 'x' ? a[1] * 2.2 : 0), H - 0.4, cz + (a[0] === 'z' ? a[1] * 2.2 : 0)); sp.target.position.set(cx + (a[0] === 'x' ? a[1] * w / 2 : 0), 1.7, cz + (a[0] === 'z' ? a[1] * d / 2 : 0)); scene.add(sp, sp.target); s.spots.push(sp); }
   s.signMesh = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(6, w - 1), 1.4), new THREE.MeshBasicMaterial({ map: makeSignTex(s.name, st.accent), transparent: true })); s.signMesh.position.set(cx, 4.0, s.z0 + 0.06); scene.add(s.signMesh);
+  s.sectionTitles = s.sectionTitles || { N: '', S: '', E: '', W: '' }; s.sectionMeshes = {};
+  for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', st.accent), transparent: true, depthWrite: false })); positionSectionTitle(s, sd, m); m.visible = false; scene.add(m); s.sectionMeshes[sd] = m; }
+  updateSectionTitles(s);
   s.stars = new THREE.Group(); const sm = new THREE.MeshBasicMaterial({ color: 0xbcd0ff }); for (let i = 0; i < 26; i++) { const stt = new THREE.Mesh(new THREE.SphereGeometry(0.03 + Math.random() * 0.03, 6, 6), sm); stt.position.set(cx + (Math.random() - .5) * w * .9, H - 0.25, cz + (Math.random() - .5) * d * .9); s.stars.add(stt); } scene.add(s.stars); s.stars.visible = st.floor === 'dark';
   s.sides = { N: [], S: [], E: [], W: [] }; s.walls = { N: [], S: [], E: [], W: [] }; s.frames = { N: [], S: [], E: [], W: [] };
 }
@@ -311,13 +338,17 @@ function buildDoorway(s, side, lo, hi) { const mat = s.wallMat; const ms = [];
   else { const x = side === 'E' ? s.x1 : s.x0; ms.push(box(x, (DOORH + H) / 2, (lo + hi) / 2, T, H - DOORH, hi - lo, mat, false), box(x, DOORH / 2, lo, 0.5, DOORH, 0.14, doorTrimMat, false), box(x, DOORH / 2, hi, 0.5, DOORH, 0.14, doorTrimMat, false)); }
   return ms;
 }
-function applyTheme(s, save = true) { const st = styleById(s.styleId); s.wallMat.color.set(st.wall); s.floorMat.map = floorTexFor(st.floor, s.x1 - s.x0, s.z1 - s.z0); s.floorMat.roughness = st.rough; s.floorMat.metalness = st.metal; s.floorMat.needsUpdate = true; s.point.color.set(st.light); s.point.intensity = st.li; s.spots.forEach(sp => sp.color.set(st.light)); s.stars.visible = st.floor === 'dark'; s.signMesh.material.map = makeSignTex(s.name, st.accent); s.signMesh.material.needsUpdate = true; if (s.id === lastId) document.getElementById('roomlabel').textContent = s.name; if (save) saveConfig(); }
+function applyTheme(s, save = true) { const st = styleById(s.styleId); s.wallMat.color.set(st.wall); s.floorMat.map = floorTexFor(st.floor, s.x1 - s.x0, s.z1 - s.z0); s.floorMat.roughness = st.rough; s.floorMat.metalness = st.metal; s.floorMat.needsUpdate = true; s.point.color.set(st.light); s.point.intensity = st.li; s.spots.forEach(sp => sp.color.set(st.light)); s.stars.visible = st.floor === 'dark'; s.signMesh.material.map = makeSignTex(s.name, st.accent); s.signMesh.material.needsUpdate = true; updateSectionTitles(s); if (s.id === lastId) document.getElementById('roomlabel').textContent = s.name; if (save) saveConfig(); }
 function overlaps(x0, x1, z0, z1) { const e = 0.4; for (const s of spaces.values()) if (x0 < s.x1 - e && x1 > s.x0 + e && z0 < s.z1 - e && z1 > s.z0 + e) return true; return false; }
 
 function buildSpaceFrom(type, parent, side, uHit) {
   const isX = (side === 'N' || side === 'S'); const W = type === 'hall' ? HALLW : RW, L = type === 'hall' ? HALLLEN : RD; const half = type === 'hall' ? HALLW / 2 : DOORW / 2;
   const [lo, hi] = isX ? [parent.x0, parent.x1] : [parent.z0, parent.z1];
-  const u = clamp(uHit, lo + half + 0.4, hi - half - 0.4);
+  // When the new space is as wide as the wall it grows from (e.g. a hall extending
+  // straight off the end of a hall), there's no valid margin — center it on the
+  // parent so the two line up into one continuous space instead of shifting sideways.
+  const minU = lo + half + 0.4, maxU = hi - half - 0.4;
+  const u = minU > maxU ? (lo + hi) / 2 : clamp(uHit, minU, maxU);
   let x0, x1, z0, z1;
   if (side === 'N') { z1 = parent.z0; z0 = parent.z0 - L; x0 = u - W / 2; x1 = u + W / 2; }
   else if (side === 'S') { z0 = parent.z1; z1 = parent.z1 + L; x0 = u - W / 2; x1 = u + W / 2; }
@@ -369,14 +400,14 @@ const undoStack = [];
 function updateUndoBtn() { const b = document.getElementById('undoBtn'); if (!b) return; b.disabled = undoStack.length === 0; b.textContent = undoStack.length ? '↶ Undo: ' + undoStack[undoStack.length - 1].label : '↶ Nothing to undo'; }
 function pushUndo(label, fn) { undoStack.push({ label, fn }); if (undoStack.length > 40) undoStack.shift(); updateUndoBtn(); }
 async function doUndo() { const u = undoStack.pop(); if (!u) { toast('Nothing to undo'); updateUndoBtn(); return; } try { await u.fn(); toast('Undid: ' + u.label); } catch (e) { console.error(e); toast('Could not undo that'); } updateUndoBtn(); }
-function disposeSpace(s) { for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); removeBox(s.strip); removeBox(s.signMesh); scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
+function disposeSpace(s) { for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); removeBox(s.strip); removeBox(s.signMesh); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
 async function deleteSpace(id, opts = {}) {
   if (spaces.size <= 1) { toast('Keep at least one room'); return; }
   const s = spaces.get(id); if (!s) return;
   if (opts.confirm && !confirm('Delete "' + s.name + '" and everything in it?')) return;
   GT.stop();
   let snap = null;
-  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, styleId: s.styleId, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 }, conns: [], media }; }
+  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, styleId: s.styleId, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) } }, conns: [], media }; }
   const involved = connections.filter(c => c.a === id || spaceOnOtherSide(c) === id);
   const reseal = involved.map(c => ({ otherId: (c.a === id) ? spaceOnOtherSide(c) : c.a, otherSide: (c.a === id) ? OPP[c.side] : c.side, lo: c.lo, hi: c.hi, doorMeshes: c.doorMeshes }));
   if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }));
@@ -401,7 +432,7 @@ function rebuildSpace(snap) {
 const updateCount = () => document.getElementById('count').textContent = `${frames.filter(f => f.filled).length} / ${frames.length} filled`;
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
-const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, styleId: s.styleId, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId } });
+const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, styleId: s.styleId, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
 
 /* ===== sample art ===== */
 function drawSample(g, w, h, k) { const pals = [['#ff9a4d', '#ffd86b'], ['#4d79ff', '#9b6bff'], ['#0f2027', '#2c5364'], ['#34d399', '#a7f3d0'], ['#f472b6', '#c084fc'], ['#0ea5e9', '#2dd4bf']][k % 6]; const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, pals[0]); grad.addColorStop(1, pals[1]); g.fillStyle = grad; g.fillRect(0, 0, w, h); g.globalAlpha = .18; for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#000000'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, 0, 7); g.fill(); } g.globalAlpha = 1; if (k === 5) { g.fillStyle = 'rgba(0,0,0,.32)'; g.fillRect(w * .12, h * .34, w * .76, h * .32); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 60px Georgia, serif'; g.fillText('Your Museum', w / 2, h * .47); g.font = '400 26px system-ui'; g.fillText('face a wall & click to build', w / 2, h * .57); } else { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 8; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, Math.random() * h); g.bezierCurveTo(w * .3, Math.random() * h, w * .6, Math.random() * h, w, Math.random() * h); g.stroke(); } } }
@@ -486,7 +517,7 @@ const blobToDataURL = (b) => new Promise((ok) => { const r = new FileReader(); r
 async function exportGallery() { toast('Packing your museum…'); const recs = await DB.all(); const out = []; for (const r of recs) { if (r.blob) out.push({ frame: r.frame, type: r.type, title: r.title || '', mime: r.blob.type, data: await blobToDataURL(r.blob) }); else out.push({ frame: r.frame, config: r.config }); } const json = JSON.stringify({ app: 'my-museum', version: 5, records: out }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = 'my-museum.museum'; a.click(); toast(`Exported ${out.length} item${out.length !== 1 ? 's' : ''} (incl. media + music)`); }
 document.getElementById('importFile').addEventListener('change', async (e) => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; try { const data = JSON.parse(await file.text()); const recs = data.records || data.items; if (!recs) throw 0; toast('Importing…'); for (const it of recs) { if (it.config) { await DB.put({ frame: it.frame, config: it.config }); continue; } const blob = await (await fetch(it.data)).blob(); await DB.put({ frame: it.frame, type: it.type, blob, title: it.title || '' }); } location.hash = ''; setTimeout(() => location.reload(), 400); } catch { toast('Could not read that file'); } });
 async function saveGallery() { for (const f of frames) if (f.filled) { const rec = await DB.get(f.id); if (rec) { rec.title = f.title; await DB.put(rec); } } await saveConfig(); toast('Saved to this browser'); }
-function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.styleId, s.x0, s.x1, s.z0, s.z1]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]) }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
+function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.styleId, s.x0, s.x1, s.z0, s.z1, s.sectionTitles]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
 function readShare() { const m = location.hash.match(/m=([^&]+)/); if (!m) return null; try { return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); } catch { return null; } }
 
 /* ===== music ===== */
@@ -523,6 +554,7 @@ menu.querySelectorAll('button[data-act]').forEach(b => b.onclick = () => { const
   else if (a === 'resetall') { if (confirm('Completely reset the museum? This wipes ALL media, rooms, music and settings, and cannot be undone.')) DB.all().then(rs => Promise.all(rs.map(r => DB.del(r.frame))).then(() => { location.hash = ''; location.reload(); })); }
   else if (a === 'tour') { closeMenu(); if (!started) enterTour(); GT.start(); }
   else if (a === 'exit') { closeMenu(); exitTour(); } });
+document.getElementById('sectionTitlesOn').addEventListener('change', (e) => { showSectionTitles = e.target.checked; spaces.forEach(updateSectionTitles); saveConfig(); });
 document.getElementById('musicOn').addEventListener('change', (e) => Music.setOn(e.target.checked));
 document.getElementById('musicVol').addEventListener('input', (e) => Music.setVol(+e.target.value));
 document.getElementById('musicFile').addEventListener('change', (e) => { if (e.target.files[0]) Music.setTrack(musicScope, e.target.files[0]); e.target.value = ''; });
@@ -531,9 +563,14 @@ function sortedSpaces() { return [...spaces.values()].sort((a, b) => a.cz - b.cz
 function buildWingEditor() {
   const host = document.getElementById('wings'); host.innerHTML = '';
   sortedSpaces().forEach((s) => { const opts = STYLES.map(o => `<option value="${o.id}"${o.id === s.styleId ? ' selected' : ''}>${o.name}</option>`).join(''); const hasMusic = !!Music.tracks[s.id];
+    const sidesWithFrames = SIDES.filter(sd => (s.frames[sd] || []).length > 0);
+    const sideLabel = { N: 'North', S: 'South', E: 'East', W: 'West' };
+    const titleRows = sidesWithFrames.map(sd => `<div class="wtrow"><span class="wtside" title="${sideLabel[sd]} wall">${sd}</span><input class="wtitle" data-side="${sd}" value="${(s.sectionTitles?.[sd] || '').replace(/"/g, '&quot;')}" maxlength="26" placeholder="Wall heading…"></div>`).join('');
+    const titlesBlock = titleRows ? `<div class="wtitles"><div class="wtlbl">Wall headings — large title above the media</div>${titleRows}</div>` : '';
     const el = document.createElement('div'); el.className = 'wing';
-    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"></div><select class="wstyle">${opts}</select><div class="wbtns"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
+    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"></div><select class="wstyle">${opts}</select><div class="wbtns"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div>${titlesBlock}<div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
     el.querySelector('.wname').onchange = (ev) => { s.name = ev.target.value.trim() || s.type; applyTheme(s); };
+    el.querySelectorAll('.wtitle').forEach(inp => inp.onchange = (ev) => { s.sectionTitles = s.sectionTitles || { N: '', S: '', E: '', W: '' }; s.sectionTitles[ev.target.dataset.side] = ev.target.value.trim(); updateSectionTitles(s); saveConfig(); });
     el.querySelector('.wstyle').onchange = (ev) => { s.styleId = ev.target.value; applyTheme(s); };
     el.querySelector('[data-go]').onclick = () => { if (!started) enterTour(); teleport(s.id); closeMenu(); };
     el.querySelector('[data-mus]').onclick = () => { musicScope = s.id; document.getElementById('musicFile').click(); };
@@ -598,7 +635,9 @@ let toastTimer; function toast(msg) { const el = document.getElementById('toast'
 
 /* ===== boot ===== */
 function buildFromConfig(cfg) {
-  cfg.spaces.forEach(o => spaces.set(o.id, { id: o.id, type: o.type, name: o.name, styleId: o.styleId, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1 }));
+  if (cfg.showSectionTitles != null) showSectionTitles = !!cfg.showSectionTitles;
+  const stCb = document.getElementById('sectionTitlesOn'); if (stCb) stCb.checked = showSectionTitles;
+  cfg.spaces.forEach(o => spaces.set(o.id, { id: o.id, type: o.type, name: o.name, styleId: o.styleId, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' } }));
   nextId = cfg.nextId || spaces.size;
   spaces.forEach(buildSpaceBase);
   (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); spaces.get(nb).parentSide = OPP[c.side]; } });
@@ -609,7 +648,7 @@ function buildFromConfig(cfg) {
 async function boot() {
   const share = readShare(); const recs = share ? [] : await DB.all(); let config = null; const mediaRecs = []; let hadMedia = false;
   for (const r of recs) { if (r.frame === 'config') config = r.config; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) { mediaRecs.push(r); hadMedia = true; } }
-  if (share) { const cfg = { spaces: share.s.map(a => ({ id: a[0], type: a[1], name: a[2], styleId: a[3], x0: a[4], x1: a[5], z0: a[6], z1: a[7] })), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
+  if (share) { const cfg = { spaces: share.s.map(a => ({ id: a[0], type: a[1], name: a[2], styleId: a[3], x0: a[4], x1: a[5], z0: a[6], z1: a[7], sectionTitles: a[8] || { N: '', S: '', E: '', W: '' } })), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
   else {
     if (config && config.spaces?.length) buildFromConfig(config);
     else { const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', styleId: 'classic', x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2 }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); saveConfig(); }
