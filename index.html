@@ -243,6 +243,11 @@ const floorCache = {}; const getFloor = (k) => floorCache[k] || (floorCache[k] =
 // space's world origin) so board/tile seams line up continuously across adjacent hall/wing segments.
 const FLOORTILE = 3;
 function floorTexFor(k, s) { const w = s.x1 - s.x0, d = s.z1 - s.z0; const t = getFloor(k).clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / FLOORTILE, d / FLOORTILE); t.offset.set(s.x0 / FLOORTILE, -s.z1 / FLOORTILE); return t; }
+// Surface finish per floor DESIGN (not per preset) so the same floor looks identical in every
+// space — a wood hall and a wood wing render with the exact same sheen. Kept fairly matte
+// (metalness 0) so floors don't read as glossy when peering between rooms.
+const FLOOR_MAT = { wood: { rough: 0.82, metal: 0 }, marble: { rough: 0.55, metal: 0 }, tile: { rough: 0.6, metal: 0 }, dark: { rough: 0.5, metal: 0 }, concrete: { rough: 0.9, metal: 0 } };
+const floorMatFor = (k) => FLOOR_MAT[k] || FLOOR_MAT.wood;
 
 /* ===== Constants / styles ===== */
 // HALLLEN is kept a bit longer than a wing's footprint along the hall (RW) so a wing fits within
@@ -278,9 +283,8 @@ const matteMat = new THREE.MeshStandardMaterial({ color: 0xf4f0e6, roughness: 1 
 const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: .22 });
 const ceilMat = new THREE.MeshStandardMaterial({ color: 0x101018, roughness: 1 });
 
-/* ===== sign + frame helpers ===== */
+/* ===== frame + heading helpers ===== */
 function hex(c) { return '#' + (c >>> 0).toString(16).padStart(6, '0').slice(-6); }
-function makeSignTex(label, accent) { const c = document.createElement('canvas'); c.width = 1024; c.height = 256; const x = c.getContext('2d'); x.clearRect(0, 0, 1024, 256); x.font = '600 92px Georgia, serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillStyle = hex(accent); x.fillText((label || 'Room').toUpperCase(), 512, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
 // Wall-section heading: a large title above the media. Uses a dark outline + shadow so the
 // accent-coloured text stays legible against both bright and dark gallery walls.
 function makeHeadingTex(label, accent) { const W = 2048, Hc = 512, maxW = W - 160; const c = document.createElement('canvas'); c.width = W; c.height = Hc; const x = c.getContext('2d'); x.clearRect(0, 0, W, Hc); const txt = (label || '').toUpperCase(); x.textAlign = 'center'; x.textBaseline = 'middle'; let fs = 300; x.font = `700 ${fs}px Georgia, serif`; const tw = x.measureText(txt).width; if (tw > maxW) { fs = Math.max(70, Math.floor(fs * maxW / tw)); x.font = `700 ${fs}px Georgia, serif`; } x.lineJoin = 'round'; x.lineWidth = Math.max(10, fs * 0.1); x.strokeStyle = 'rgba(8,7,4,.72)'; x.strokeText(txt, W / 2, Hc / 2 + 6); x.shadowColor = 'rgba(0,0,0,.5)'; x.shadowBlur = 18; x.shadowOffsetY = 5; x.fillStyle = hex(accent); x.fillText(txt, W / 2, Hc / 2 + 6); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; }
@@ -319,8 +323,6 @@ function positionSectionTitle(s, side, m) {
 function updateSectionTitles(s) {
   for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (!m) continue; const txt = (s.sectionTitles?.[sd] || '').trim();
     m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, s.accent); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
-  // The room-name sign lives on the N (z0) wall — hide it when that wall carries its own heading.
-  if (s.signMesh) s.signMesh.visible = !(showSectionTitles && !!(s.sectionTitles?.N || '').trim());
 }
 // A point light of fixed intensity blows out narrow halls (surfaces sit close to it) while looking
 // right in room-sized wings. Scale intensity by floor area so a hall matches a wing's brightness
@@ -328,14 +330,14 @@ function updateSectionTitles(s) {
 function spaceLightIntensity(s) { const area = (s.x1 - s.x0) * (s.z1 - s.z0); return s.lightIntensity * clamp(area / (RW * RD), 0.45, 1.1); }
 function buildSpaceBase(s) {
   const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, w = s.x1 - s.x0, d = s.z1 - s.z0;
-  s.cx = cx; s.cz = cz; s.wallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: s.wallRoughness });
-  s.floorMat = new THREE.MeshStandardMaterial({ map: floorTexFor(s.floorType, s), roughness: s.wallRoughness, metalness: s.wallMetalness });
+  s.cx = cx; s.cz = cz; s.wallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: 0.9 });
+  const fm = floorMatFor(s.floorType);
+  s.floorMat = new THREE.MeshStandardMaterial({ map: floorTexFor(s.floorType, s), roughness: fm.rough, metalness: fm.metal });
   const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), s.floorMat); fl.rotation.x = -Math.PI / 2; fl.position.set(cx, 0, cz); fl.userData.floorId = s.id; scene.add(fl); s.floor = fl;
   s.ceil = box(cx, H, cz, w, 0.3, d, ceilMat, false);
   const long = Math.max(w, d); s.strip = box(cx, H - 0.18, cz, w >= d ? long * .8 : 0.6, 0.12, w >= d ? 0.6 : long * .8, stripMat, false);
   s.point = new THREE.PointLight(s.lightColor, spaceLightIntensity(s), 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
   s.spots = []; if (!LITE && s.type === 'room') for (const a of [['z', -1], ['z', 1], ['x', -1], ['x', 1]]) { const sp = new THREE.SpotLight(s.lightColor, 9, 15, 0.7, 0.6, 1.2); sp.position.set(cx + (a[0] === 'x' ? a[1] * 2.2 : 0), H - 0.4, cz + (a[0] === 'z' ? a[1] * 2.2 : 0)); sp.target.position.set(cx + (a[0] === 'x' ? a[1] * w / 2 : 0), 1.7, cz + (a[0] === 'z' ? a[1] * d / 2 : 0)); scene.add(sp, sp.target); s.spots.push(sp); }
-  s.signMesh = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(6, w - 1), 1.4), new THREE.MeshBasicMaterial({ map: makeSignTex(s.name, s.accent), transparent: true })); s.signMesh.position.set(cx, 4.0, s.z0 + 0.06); scene.add(s.signMesh);
   s.sectionTitles = s.sectionTitles || { N: '', S: '', E: '', W: '' }; s.sectionMeshes = {};
   for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', s.accent), transparent: true, depthWrite: false })); positionSectionTitle(s, sd, m); m.visible = false; scene.add(m); s.sectionMeshes[sd] = m; }
   updateSectionTitles(s);
@@ -364,39 +366,47 @@ function buildWallSide(s, side) {
 }
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
 function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
-// Header (wall over the door) + trim jambs on both sides + a top lintel so the trim wraps all the
-// way around the opening. Inset-aware so it lands on the same plane as this space's wall segments.
-function buildDoorway(s, side, lo, hi) { const mat = s.wallMat; const ms = [];
+// Just the header (wall over the door) for one space's wall. Inset-aware so it lands on the same
+// plane as this space's wall segments. Trim is built once per connection (buildDoorTrim) instead.
+function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
   const inset = (side === s.parentSide && (s.sides?.[side]?.length > 0)) ? T : 0;
   const dir = (side === 'N' || side === 'W') ? 1 : -1; const midY = (DOORH + H) / 2, hdrH = H - DOORH;
-  if (side === 'N' || side === 'S') { const z = (side === 'N' ? s.z0 : s.z1) + dir * inset;
-    ms.push(box((lo + hi) / 2, midY, z, hi - lo, hdrH, T, mat, false)); // wall continues over the door
-    ms.push(box(lo, DOORH / 2, z, 0.16, DOORH, 0.52, doorTrimMat, false), box(hi, DOORH / 2, z, 0.16, DOORH, 0.52, doorTrimMat, false)); // side jambs
-    ms.push(box((lo + hi) / 2, DOORH + 0.02, z, (hi - lo) + 0.16, 0.16, 0.52, doorTrimMat, false)); } // top lintel
-  else { const x = (side === 'E' ? s.x1 : s.x0) + dir * inset;
-    ms.push(box(x, midY, (lo + hi) / 2, T, hdrH, hi - lo, mat, false));
-    ms.push(box(x, DOORH / 2, lo, 0.52, DOORH, 0.16, doorTrimMat, false), box(x, DOORH / 2, hi, 0.52, DOORH, 0.16, doorTrimMat, false));
-    ms.push(box(x, DOORH + 0.02, (lo + hi) / 2, 0.52, 0.16, (hi - lo) + 0.16, doorTrimMat, false)); }
+  if (side === 'N' || side === 'S') { const z = (side === 'N' ? s.z0 : s.z1) + dir * inset; return [box((lo + hi) / 2, midY, z, hi - lo, hdrH, T, mat, false)]; }
+  const x = (side === 'E' ? s.x1 : s.x0) + dir * inset; return [box(x, midY, (lo + hi) / 2, T, hdrH, hi - lo, mat, false)];
+}
+// One trim frame threaded through the whole doorway depth (both back-to-back walls), so the trim
+// reads the same from either room instead of a doubled frame. A jamb is drawn only where actual
+// wall sits beside the opening, so full-width hall mouths don't get posts jammed into their corners.
+function buildDoorTrim(a, side, lo, hi) { const ms = []; const dep = 2 * T + 0.12; const th = 0.16;
+  const axisIsX = (side === 'N' || side === 'S'); const wLo = axisIsX ? a.x0 : a.z0, wHi = axisIsX ? a.x1 : a.z1;
+  const jL = lo > wLo + 0.05, jH = hi < wHi - 0.05;
+  if (axisIsX) { const zc = (side === 'N' ? a.z0 - T / 2 : a.z1 + T / 2);
+    if (jL) ms.push(box(lo, DOORH / 2, zc, th, DOORH, dep, doorTrimMat, false));
+    if (jH) ms.push(box(hi, DOORH / 2, zc, th, DOORH, dep, doorTrimMat, false));
+    ms.push(box((lo + hi) / 2, DOORH + 0.02, zc, (hi - lo) + th, th, dep, doorTrimMat, false)); }
+  else { const xc = (side === 'E' ? a.x1 + T / 2 : a.x0 - T / 2);
+    if (jL) ms.push(box(xc, DOORH / 2, lo, dep, DOORH, th, doorTrimMat, false));
+    if (jH) ms.push(box(xc, DOORH / 2, hi, dep, DOORH, th, doorTrimMat, false));
+    ms.push(box(xc, DOORH + 0.02, (lo + hi) / 2, dep, th, (hi - lo) + th, doorTrimMat, false)); }
   return ms;
 }
 // A hall extended straight off the end of another hall — the opening spans the full shared wall —
 // reads as one long corridor, so it gets no header/trim (just an open span).
 function isSeamlessConn(c) { const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); if (!a || !b || a.type !== 'hall' || b.type !== 'hall') return false; const full = (c.side === 'N' || c.side === 'S') ? (a.x1 - a.x0) : (a.z1 - a.z0); return Math.abs((c.hi - c.lo) - full) < 0.06; }
-// Build the doorway on BOTH rooms' walls so it reads as a proper opening from either side; seamless
-// hall extensions get nothing. Returns the combined mesh list to store on the connection.
-function buildConnDoors(c) { if (isSeamlessConn(c)) return []; const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); let ms = a ? buildDoorway(a, c.side, c.lo, c.hi) : []; if (b) ms = ms.concat(buildDoorway(b, OPP[c.side], c.lo, c.hi)); return ms; }
+// Build the header on BOTH rooms' walls (so the wall reads as continuing over the door from either
+// side) plus a single shared trim frame; seamless hall extensions get nothing.
+function buildConnDoors(c) { if (isSeamlessConn(c)) return []; const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); let ms = a ? buildDoorway(a, c.side, c.lo, c.hi) : []; if (b) ms = ms.concat(buildDoorway(b, OPP[c.side], c.lo, c.hi)); if (a) ms = ms.concat(buildDoorTrim(a, c.side, c.lo, c.hi)); return ms; }
 function applyTheme(s, save = true) {
+  const fm = floorMatFor(s.floorType);
   s.wallMat.color.set(s.wallColor);
   s.floorMat.map = floorTexFor(s.floorType, s);
-  s.floorMat.roughness = s.wallRoughness;
-  s.floorMat.metalness = s.wallMetalness;
+  s.floorMat.roughness = fm.rough;
+  s.floorMat.metalness = fm.metal;
   s.floorMat.needsUpdate = true;
   s.point.color.set(s.lightColor);
   s.point.intensity = spaceLightIntensity(s);
   s.spots.forEach(sp => sp.color.set(s.lightColor));
   s.stars.visible = s.floorType === 'dark';
-  s.signMesh.material.map = makeSignTex(s.name, s.accent);
-  s.signMesh.material.needsUpdate = true;
   updateSectionTitles(s);
   if (s.id === lastId) document.getElementById('roomlabel').textContent = s.name;
   if (save) saveConfig();
@@ -513,7 +523,7 @@ const undoStack = [];
 function updateUndoBtn() { const b = document.getElementById('undoBtn'); if (!b) return; b.disabled = undoStack.length === 0; b.textContent = undoStack.length ? '↶ Undo: ' + undoStack[undoStack.length - 1].label : '↶ Nothing to undo'; }
 function pushUndo(label, fn) { undoStack.push({ label, fn }); if (undoStack.length > 40) undoStack.shift(); updateUndoBtn(); }
 async function doUndo() { const u = undoStack.pop(); if (!u) { toast('Nothing to undo'); updateUndoBtn(); return; } try { await u.fn(); toast('Undid: ' + u.label); } catch (e) { console.error(e); toast('Could not undo that'); } updateUndoBtn(); }
-function disposeSpace(s) { for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); removeBox(s.strip); removeBox(s.signMesh); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
+function disposeSpace(s) { for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); removeBox(s.strip); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
 async function deleteSpace(id, opts = {}) {
   if (spaces.size <= 1) { toast('Keep at least one room'); return; }
   const s = spaces.get(id); if (!s) return;
