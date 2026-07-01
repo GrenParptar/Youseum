@@ -294,6 +294,8 @@ function updateSectionTitles(s) {
   const st = styleById(s.styleId);
   for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (!m) continue; const txt = (s.sectionTitles?.[sd] || '').trim();
     m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, st.accent); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+  // The room-name sign lives on the N (z0) wall — hide it when that wall carries its own heading.
+  if (s.signMesh) s.signMesh.visible = !(showSectionTitles && !!(s.sectionTitles?.N || '').trim());
 }
 function buildSpaceBase(s) {
   const st = styleById(s.styleId); const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, w = s.x1 - s.x0, d = s.z1 - s.z0;
