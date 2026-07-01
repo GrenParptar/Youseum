@@ -221,7 +221,9 @@ const floorCache = {}; const getFloor = (k) => floorCache[k] || (floorCache[k] =
 function floorTexFor(k, w, d) { const t = getFloor(k).clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / 3, d / 3); return t; }
 
 /* ===== Constants / styles ===== */
-const RW = 18, RD = 14, HALLW = 4.8, HALLLEN = 16, H = 5, DOORW = 3.2, DOORH = 3.0, T = 0.4;
+// HALLLEN is kept a bit longer than a wing's footprint along the hall (RW) so a wing fits within
+// one hall segment's side wall, and wings on two adjacent hall segments don't clip into each other.
+const RW = 18, RD = 14, HALLW = 4.8, HALLLEN = 20, H = 5, DOORW = 3.2, DOORH = 3.0, T = 0.4;
 const STYLES = [
   { id: 'classic',  name: 'Classic Hall', wall: 0xd8cdb6, floor: 'wood',     rough: .8,  metal: 0,  light: 0xffe6c0, li: 46, accent: 0xffcf95 },
   { id: 'modern',   name: 'Modern White', wall: 0xe9e9ee, floor: 'marble',   rough: .35, metal: .1, light: 0xf2f5ff, li: 58, accent: 0xcfe0ff },
