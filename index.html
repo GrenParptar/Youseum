@@ -375,11 +375,15 @@ function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
   const x = (side === 'E' ? s.x1 : s.x0) + dir * inset; return [box(x, midY, (lo + hi) / 2, T, hdrH, hi - lo, mat, false)];
 }
 // One trim frame threaded through the whole doorway depth (both back-to-back walls), so the trim
-// reads the same from either room instead of a doubled frame. A jamb is drawn only where actual
-// wall sits beside the opening, so full-width hall mouths don't get posts jammed into their corners.
-function buildDoorTrim(a, side, lo, hi) { const ms = []; const dep = 2 * T + 0.12; const th = 0.16;
-  const axisIsX = (side === 'N' || side === 'S'); const wLo = axisIsX ? a.x0 : a.z0, wHi = axisIsX ? a.x1 : a.z1;
-  const jL = lo > wLo + 0.05, jH = hi < wHi - 0.05;
+// reads the same from either room instead of a doubled frame. A jamb is drawn only where BOTH
+// spaces have wall beside the opening edge — a hall mouth spans its full width, so its own side
+// walls sit exactly on the edge and would bite into (overlap) a jamb there, so we omit it and let
+// the hall walls frame the opening instead. Top lintel is always drawn.
+function buildDoorTrim(a, b, side, lo, hi) { const ms = []; const dep = 2 * T + 0.12; const th = 0.16;
+  const axisIsX = (side === 'N' || side === 'S');
+  const aLo = axisIsX ? a.x0 : a.z0, aHi = axisIsX ? a.x1 : a.z1;
+  const bLo = b ? (axisIsX ? b.x0 : b.z0) : -Infinity, bHi = b ? (axisIsX ? b.x1 : b.z1) : Infinity;
+  const jL = lo > aLo + 0.05 && lo > bLo + 0.05, jH = hi < aHi - 0.05 && hi < bHi - 0.05;
   if (axisIsX) { const zc = (side === 'N' ? a.z0 - T / 2 : a.z1 + T / 2);
     if (jL) ms.push(box(lo, DOORH / 2, zc, th, DOORH, dep, doorTrimMat, false));
     if (jH) ms.push(box(hi, DOORH / 2, zc, th, DOORH, dep, doorTrimMat, false));
@@ -395,7 +399,7 @@ function buildDoorTrim(a, side, lo, hi) { const ms = []; const dep = 2 * T + 0.1
 function isSeamlessConn(c) { const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); if (!a || !b || a.type !== 'hall' || b.type !== 'hall') return false; const full = (c.side === 'N' || c.side === 'S') ? (a.x1 - a.x0) : (a.z1 - a.z0); return Math.abs((c.hi - c.lo) - full) < 0.06; }
 // Build the header on BOTH rooms' walls (so the wall reads as continuing over the door from either
 // side) plus a single shared trim frame; seamless hall extensions get nothing.
-function buildConnDoors(c) { if (isSeamlessConn(c)) return []; const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); let ms = a ? buildDoorway(a, c.side, c.lo, c.hi) : []; if (b) ms = ms.concat(buildDoorway(b, OPP[c.side], c.lo, c.hi)); if (a) ms = ms.concat(buildDoorTrim(a, c.side, c.lo, c.hi)); return ms; }
+function buildConnDoors(c) { if (isSeamlessConn(c)) return []; const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); let ms = a ? buildDoorway(a, c.side, c.lo, c.hi) : []; if (b) ms = ms.concat(buildDoorway(b, OPP[c.side], c.lo, c.hi)); if (a) ms = ms.concat(buildDoorTrim(a, b, c.side, c.lo, c.hi)); return ms; }
 function applyTheme(s, save = true) {
   const fm = floorMatFor(s.floorType);
   s.wallMat.color.set(s.wallColor);
