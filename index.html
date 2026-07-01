@@ -63,6 +63,7 @@
   #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255,255,255,.5); border: 2px solid rgba(255,255,255,.7); }
   #useBtn { position: absolute; right: 34px; bottom: 64px; width: 84px; height: 84px; border-radius: 50%; border: 2px solid rgba(255,210,122,.8); background: rgba(255,210,122,.18); color: #ffe6b0; font: 700 16px inherit; letter-spacing: 1px; } #useBtn:active { background: rgba(255,210,122,.4); }
   #wingBtn { position: absolute; right: 40px; bottom: 158px; width: 72px; height: 56px; border-radius: 14px; border: 2px solid rgba(180,210,255,.7); background: rgba(120,150,255,.18); color: #cfe0ff; font: 700 13px inherit; display: none; } body.tour.touch #wingBtn { display: block; } #wingBtn:active { background: rgba(120,150,255,.4); }
+  #headBtn { position: absolute; right: 40px; bottom: 226px; width: 72px; height: 50px; border-radius: 14px; border: 2px solid rgba(255,210,122,.7); background: rgba(255,210,122,.16); color: #ffe6b0; font: 700 12px inherit; display: none; } body.tour.touch.lookwall #headBtn { display: block; } #headBtn:active { background: rgba(255,210,122,.4); }
   #toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%) translateY(20px); background: rgba(20,20,26,.96); border: 1px solid rgba(255,255,255,.12); color: #f0f0f4; padding: 11px 18px; border-radius: 10px; font-size: 14px; z-index: 32; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: 80vw; text-align: center; } #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   #drop { position: fixed; inset: 0; z-index: 18; pointer-events: none; display: grid; place-items: center; background: rgba(255,210,122,.10); border: 3px dashed rgba(255,210,122,.7); opacity: 0; transition: opacity .15s; } #drop.show { opacity: 1; } #drop span { background: rgba(12,12,16,.9); color: #ffd27a; padding: 14px 22px; border-radius: 12px; font-size: 16px; font-weight: 600; }
   /* Lightbox — closer view of a piece */
@@ -135,7 +136,7 @@
     <div class="grp"><button class="item" data-act="exit">⤿ Exit to start screen</button></div>
   </div>
   <div id="overview"><div class="ohead"><h2>All <span class="accent">rooms</span></h2><button class="oclose" id="ovClose">Close ✕</button></div><div id="ogrid"></div></div>
-  <div id="touch"><div id="joy"><div id="knob"></div></div><button id="useBtn">USE</button><button id="wingBtn">＋ WING</button></div>
+  <div id="touch"><div id="joy"><div id="knob"></div></div><button id="useBtn">USE</button><button id="wingBtn">＋ WING</button><button id="headBtn">＋ TITLE</button></div>
   <div id="drop"><span>Drop photos &amp; videos to hang them</span></div>
   <div id="overlay">
     <div class="card">
@@ -461,17 +462,19 @@ addEventListener('touchend', endTouch); addEventListener('touchcancel', endTouch
 function updJoy(t, c) { let dx = t.clientX - c.x, dy = t.clientY - c.y; const d = Math.hypot(dx, dy); if (d > joyR) { dx *= joyR / d; dy *= joyR / d; } knob.style.transform = `translate(${dx}px,${dy}px)`; joyX = dx / joyR; joyY = dy / joyR; }
 document.getElementById('useBtn').addEventListener('click', interact);
 document.getElementById('wingBtn').addEventListener('click', () => buildAtWall('wing'));
+document.getElementById('headBtn').addEventListener('click', () => { if (lookingWall) titleWall(); });
 
 /* ===== look + interact ===== */
 const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null;
-const promptEl = document.getElementById('prompt'), crossEl = document.getElementById('crosshair');
+const promptEl = document.getElementById('prompt'), crossEl = document.getElementById('crosshair'), headBtnEl = document.getElementById('headBtn');
 function updateLook() {
   raycaster.setFromCamera({ x: 0, y: 0 }, camera); const arts = frames.map(f => f.art); const objs = [...arts, ...wallMeshes];
   const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null;
   if (hit) { const ai = arts.indexOf(hit.object); if (ai >= 0 && hit.distance < 6.5) lookingAt = frames[ai]; else if (hit.object.userData.add && hit.distance < 5.5) { const ad = hit.object.userData.add; const u = (ad.side === 'N' || ad.side === 'S') ? hit.point.x : hit.point.z; lookingWall = { id: ad.id, side: ad.side, u }; } }
   if (inTour && !GT.active && lookingAt) { crossEl.classList.add('active'); if (!lookingAt.filled) showPrompt('<b>' + (isTouch ? 'USE' : 'Click') + '</b> to hang a photo, video or GIF'); else showPrompt(isTouch ? '<b>USE</b> to view' : '<b>Click</b> to view · <b>R-click</b> build a wing here · <b>⌫</b> clear'); }
-  else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); const has = wallHeadingText(lookingWall).trim(); showPrompt(isTouch ? '<b>USE</b> build hall · <b>＋WING</b> build room' : '<b>L-click</b> hall · <b>R-click</b> wing · <b>T</b> ' + (has ? 'edit' : 'add') + ' heading' + (has ? ' · <b>⌫</b> remove' : '')); }
+  else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); const has = wallHeadingText(lookingWall).trim(); showPrompt(isTouch ? '<b>USE</b> hall · <b>＋WING</b> room · <b>＋TITLE</b> heading' : '<b>L-click</b> hall · <b>R-click</b> wing · <b>T</b> ' + (has ? 'edit' : 'add') + ' heading' + (has ? ' · <b>⌫</b> remove' : '')); }
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
+  if (isTouch) { const showHead = inTour && !GT.active && !!lookingWall; document.body.classList.toggle('lookwall', showHead); if (showHead) headBtnEl.textContent = wallHeadingText(lookingWall).trim() ? '✎ TITLE' : '＋ TITLE'; }
 }
 const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
 function interact() { if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else openLightbox(f); } else if (lookingWall) buildAtWall('hall'); }
