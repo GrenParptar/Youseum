@@ -322,6 +322,10 @@ function updateSectionTitles(s) {
   // The room-name sign lives on the N (z0) wall — hide it when that wall carries its own heading.
   if (s.signMesh) s.signMesh.visible = !(showSectionTitles && !!(s.sectionTitles?.N || '').trim());
 }
+// A point light of fixed intensity blows out narrow halls (surfaces sit close to it) while looking
+// right in room-sized wings. Scale intensity by floor area so a hall matches a wing's brightness
+// (and its floor stops reading as glossy from the over-bright specular highlight).
+function spaceLightIntensity(s) { const area = (s.x1 - s.x0) * (s.z1 - s.z0); return s.lightIntensity * clamp(area / (RW * RD), 0.45, 1.1); }
 function buildSpaceBase(s) {
   const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, w = s.x1 - s.x0, d = s.z1 - s.z0;
   s.cx = cx; s.cz = cz; s.wallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: s.wallRoughness });
@@ -329,7 +333,7 @@ function buildSpaceBase(s) {
   const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), s.floorMat); fl.rotation.x = -Math.PI / 2; fl.position.set(cx, 0, cz); fl.userData.floorId = s.id; scene.add(fl); s.floor = fl;
   s.ceil = box(cx, H, cz, w, 0.3, d, ceilMat, false);
   const long = Math.max(w, d); s.strip = box(cx, H - 0.18, cz, w >= d ? long * .8 : 0.6, 0.12, w >= d ? 0.6 : long * .8, stripMat, false);
-  s.point = new THREE.PointLight(s.lightColor, s.lightIntensity, 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
+  s.point = new THREE.PointLight(s.lightColor, spaceLightIntensity(s), 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
   s.spots = []; if (!LITE && s.type === 'room') for (const a of [['z', -1], ['z', 1], ['x', -1], ['x', 1]]) { const sp = new THREE.SpotLight(s.lightColor, 9, 15, 0.7, 0.6, 1.2); sp.position.set(cx + (a[0] === 'x' ? a[1] * 2.2 : 0), H - 0.4, cz + (a[0] === 'z' ? a[1] * 2.2 : 0)); sp.target.position.set(cx + (a[0] === 'x' ? a[1] * w / 2 : 0), 1.7, cz + (a[0] === 'z' ? a[1] * d / 2 : 0)); scene.add(sp, sp.target); s.spots.push(sp); }
   s.signMesh = new THREE.Mesh(new THREE.PlaneGeometry(Math.min(6, w - 1), 1.4), new THREE.MeshBasicMaterial({ map: makeSignTex(s.name, s.accent), transparent: true })); s.signMesh.position.set(cx, 4.0, s.z0 + 0.06); scene.add(s.signMesh);
   s.sectionTitles = s.sectionTitles || { N: '', S: '', E: '', W: '' }; s.sectionMeshes = {};
@@ -360,11 +364,27 @@ function buildWallSide(s, side) {
 }
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
 function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
+// Header (wall over the door) + trim jambs on both sides + a top lintel so the trim wraps all the
+// way around the opening. Inset-aware so it lands on the same plane as this space's wall segments.
 function buildDoorway(s, side, lo, hi) { const mat = s.wallMat; const ms = [];
-  if (side === 'N' || side === 'S') { const z = side === 'N' ? s.z0 : s.z1; ms.push(box((lo + hi) / 2, (DOORH + H) / 2, z, hi - lo, H - DOORH, T, mat, false), box(lo, DOORH / 2, z, 0.14, DOORH, 0.5, doorTrimMat, false), box(hi, DOORH / 2, z, 0.14, DOORH, 0.5, doorTrimMat, false)); }
-  else { const x = side === 'E' ? s.x1 : s.x0; ms.push(box(x, (DOORH + H) / 2, (lo + hi) / 2, T, H - DOORH, hi - lo, mat, false), box(x, DOORH / 2, lo, 0.5, DOORH, 0.14, doorTrimMat, false), box(x, DOORH / 2, hi, 0.5, DOORH, 0.14, doorTrimMat, false)); }
+  const inset = (side === s.parentSide && (s.sides?.[side]?.length > 0)) ? T : 0;
+  const dir = (side === 'N' || side === 'W') ? 1 : -1; const midY = (DOORH + H) / 2, hdrH = H - DOORH;
+  if (side === 'N' || side === 'S') { const z = (side === 'N' ? s.z0 : s.z1) + dir * inset;
+    ms.push(box((lo + hi) / 2, midY, z, hi - lo, hdrH, T, mat, false)); // wall continues over the door
+    ms.push(box(lo, DOORH / 2, z, 0.16, DOORH, 0.52, doorTrimMat, false), box(hi, DOORH / 2, z, 0.16, DOORH, 0.52, doorTrimMat, false)); // side jambs
+    ms.push(box((lo + hi) / 2, DOORH + 0.02, z, (hi - lo) + 0.16, 0.16, 0.52, doorTrimMat, false)); } // top lintel
+  else { const x = (side === 'E' ? s.x1 : s.x0) + dir * inset;
+    ms.push(box(x, midY, (lo + hi) / 2, T, hdrH, hi - lo, mat, false));
+    ms.push(box(x, DOORH / 2, lo, 0.52, DOORH, 0.16, doorTrimMat, false), box(x, DOORH / 2, hi, 0.52, DOORH, 0.16, doorTrimMat, false));
+    ms.push(box(x, DOORH + 0.02, (lo + hi) / 2, 0.52, 0.16, (hi - lo) + 0.16, doorTrimMat, false)); }
   return ms;
 }
+// A hall extended straight off the end of another hall — the opening spans the full shared wall —
+// reads as one long corridor, so it gets no header/trim (just an open span).
+function isSeamlessConn(c) { const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); if (!a || !b || a.type !== 'hall' || b.type !== 'hall') return false; const full = (c.side === 'N' || c.side === 'S') ? (a.x1 - a.x0) : (a.z1 - a.z0); return Math.abs((c.hi - c.lo) - full) < 0.06; }
+// Build the doorway on BOTH rooms' walls so it reads as a proper opening from either side; seamless
+// hall extensions get nothing. Returns the combined mesh list to store on the connection.
+function buildConnDoors(c) { if (isSeamlessConn(c)) return []; const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); let ms = a ? buildDoorway(a, c.side, c.lo, c.hi) : []; if (b) ms = ms.concat(buildDoorway(b, OPP[c.side], c.lo, c.hi)); return ms; }
 function applyTheme(s, save = true) {
   s.wallMat.color.set(s.wallColor);
   s.floorMat.map = floorTexFor(s.floorType, s);
@@ -372,7 +392,7 @@ function applyTheme(s, save = true) {
   s.floorMat.metalness = s.wallMetalness;
   s.floorMat.needsUpdate = true;
   s.point.color.set(s.lightColor);
-  s.point.intensity = s.lightIntensity;
+  s.point.intensity = spaceLightIntensity(s);
   s.spots.forEach(sp => sp.color.set(s.lightColor));
   s.stars.visible = s.floorType === 'dark';
   s.signMesh.material.map = makeSignTex(s.name, s.accent);
@@ -406,8 +426,8 @@ function buildSpaceFrom(type, parent, side, uHit) {
   parent.sides[side].push([olo, ohi]); rebuildWallSide(parent, side);
   s.sides[OPP[side]].push([olo, ohi]); s.parentSide = OPP[side];
   for (const sd of SIDES) buildWallSide(s, sd);
-  const dm = buildDoorway(parent, side, olo, ohi);
-  connections.push({ a: parent.id, side, lo: olo, hi: ohi, doorMeshes: dm });
+  const conn = { a: parent.id, side, lo: olo, hi: ohi }; conn.doorMeshes = buildConnDoors(conn);
+  connections.push(conn);
   applyTheme(s, false); saveConfig(); buildWingEditor(); updateCount();
   toast('New ' + type + ' built — walk through the opening');
   pushUndo('build ' + type, () => deleteSpace(s.id, { undo: false }));
@@ -517,7 +537,7 @@ function rebuildSpace(snap) {
   for (const sd of SIDES) buildWallSide(s, sd);
   const done = new Set();
   for (const c of snap.conns) { const nbId = (c.a === s.id) ? spaceOnOtherSide(c) : c.a; const nbSide = (c.a === s.id) ? OPP[c.side] : c.side; const key = nbId + nbSide; if (spaces.get(nbId) && !done.has(key)) { rebuildWallSide(spaces.get(nbId), nbSide); done.add(key); } }
-  for (const c of snap.conns) { const conn = connections.find(x => x.a === c.a && x.side === c.side && Math.abs(x.lo - c.lo) < 0.05); const A = spaces.get(c.a); if (A && conn) conn.doorMeshes = buildDoorway(A, c.side, c.lo, c.hi); }
+  for (const c of snap.conns) { const conn = connections.find(x => x.a === c.a && x.side === c.side && Math.abs(x.lo - c.lo) < 0.05); if (conn) conn.doorMeshes = buildConnDoors(conn); }
   applyTheme(s, false);
   for (const rec of snap.media) { const f = frameById.get(rec.frame); if (f) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); DB.put(rec).catch(() => {}); drawPlate(f); } }
   saveConfig(); buildWingEditor(); updateCount();
@@ -816,7 +836,7 @@ function buildFromConfig(cfg) {
   spaces.forEach(buildSpaceBase);
   (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); spaces.get(nb).parentSide = OPP[c.side]; } });
   spaces.forEach(s => { for (const sd of SIDES) buildWallSide(s, sd); });
-  connections.forEach(c => { const a = spaces.get(c.a); c.doorMeshes = buildDoorway(a, c.side, c.lo, c.hi); });
+  connections.forEach(c => { c.doorMeshes = buildConnDoors(c); });
   spaces.forEach(s => applyTheme(s, false));
 }
 async function boot() {
