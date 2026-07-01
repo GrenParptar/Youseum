@@ -31,9 +31,10 @@ A self‑contained, **first‑person virtual museum** you fill with your own pho
 | Right‑click | Build a wing |
 | `E` | Play / pause video |
 | `M` | Mute · `T` Title a frame · `⌫` Clear a frame |
+| `T` (facing a wall) | Add / edit that wall's large heading · `⌫` to remove it |
 | `Esc` | Pause & free the cursor (use the map/menu to jump around) |
 
-**Touch:** left thumb to move, drag the right side to look, **USE** to fill a frame or build a hall, **+WING** to build a room. The **☰** menu holds everything else.
+**Touch:** left thumb to move, drag the right side to look, **USE** to fill a frame or build a hall, **+WING** to build a room, **+TITLE** (shown when you face a wall) to add or edit that wall's heading. The **☰** menu holds everything else.
 
 ## How your media is stored
 
