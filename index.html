@@ -367,42 +367,38 @@ function buildWallSide(s, side) {
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
 function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
 // Just the header (wall over the door) for one space's wall. Inset-aware so it lands on the same
-// plane as this space's wall segments. Black casing is added separately by buildFaceCasing.
+// plane as this space's wall segments. The black portal frame is added separately by buildDoorPortal.
 function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
   const inset = (side === s.parentSide && (s.sides?.[side]?.length > 0)) ? T : 0;
   const dir = (side === 'N' || side === 'W') ? 1 : -1; const midY = (DOORH + H) / 2, hdrH = H - DOORH;
   if (side === 'N' || side === 'S') { const z = (side === 'N' ? s.z0 : s.z1) + dir * inset; return [box((lo + hi) / 2, midY, z, hi - lo, hdrH, T, mat, false)]; }
   const x = (side === 'E' ? s.x1 : s.x0) + dir * inset; return [box(x, midY, (lo + hi) / 2, T, hdrH, hi - lo, mat, false)];
 }
-// Black door casing mounted flat on ONE space's wall FACE (like real architrave), framing the
-// opening: two vertical jambs + a top head. Because it sits on the room-side wall surface (not
-// inside the aperture), it never reaches a perpendicular hall's side walls, so nothing bites it.
-// A vertical is drawn only where this space has solid wall beside that edge; a hall mouth is its
-// full width, so it gets the head here and its own side walls read as the vertical frame.
-function buildFaceCasing(s, side, lo, hi) { const ms = []; const cw = 0.2, cd = 0.14, hy = DOORH + 0.02, hh = 0.2;
-  const inset = (side === s.parentSide && (s.sides?.[side]?.length > 0)) ? T : 0;
-  const dir = (side === 'N' || side === 'W') ? 1 : -1; const axisIsX = (side === 'N' || side === 'S');
-  const wLo = axisIsX ? s.x0 : s.z0, wHi = axisIsX ? s.x1 : s.z1;
-  const jL = lo > wLo + 0.05, jH = hi < wHi - 0.05;
-  if (axisIsX) { const plane = (side === 'N' ? s.z0 : s.z1) + dir * inset; const zc = plane + dir * (T / 2 + 0.02);
-    ms.push(box((lo + hi) / 2, hy, zc, (hi - lo) + 2 * cw, hh, cd, doorTrimMat, false)); // head
-    if (jL) ms.push(box(lo, DOORH / 2, zc, cw, DOORH, cd, doorTrimMat, false));
-    if (jH) ms.push(box(hi, DOORH / 2, zc, cw, DOORH, cd, doorTrimMat, false)); }
-  else { const plane = (side === 'E' ? s.x1 : s.x0) + dir * inset; const xc = plane + dir * (T / 2 + 0.02);
-    ms.push(box(xc, hy, (lo + hi) / 2, cd, hh, (hi - lo) + 2 * cw, doorTrimMat, false));
-    if (jL) ms.push(box(xc, DOORH / 2, lo, cd, DOORH, cw, doorTrimMat, false));
-    if (jH) ms.push(box(xc, DOORH / 2, hi, cd, DOORH, cw, doorTrimMat, false)); }
+// A bold black portal frame around the whole opening — two chunky vertical jambs + a head — set at
+// the boundary between the two spaces and protruding into both rooms. The jambs are wider than a
+// wall is thick, so at a hall mouth (where the opening edge is the hall's own side wall) the jamb
+// fully encloses that wall's leading edge and caps it in black instead of being bitten by it. Same
+// frame for every door, so they all read like a single consistent portal.
+function buildDoorPortal(c) { const a = spaces.get(c.a); if (!a) return []; const side = c.side, lo = c.lo, hi = c.hi;
+  const axisIsX = (side === 'N' || side === 'S'); const childDir = (side === 'S' || side === 'E') ? 1 : -1;
+  const jw = 0.44, hh = 0.4, dep = 2 * T + 0.24; const ms = [];
+  if (axisIsX) { const zc = (side === 'N' ? a.z0 : a.z1) + childDir * (T / 2);
+    ms.push(box(lo, DOORH / 2, zc, jw, DOORH, dep, doorTrimMat, false), box(hi, DOORH / 2, zc, jw, DOORH, dep, doorTrimMat, false)); // jambs
+    ms.push(box((lo + hi) / 2, DOORH + hh / 2, zc, (hi - lo) + 2 * jw, hh, dep, doorTrimMat, false)); } // head
+  else { const xc = (side === 'E' ? a.x1 : a.x0) + childDir * (T / 2);
+    ms.push(box(xc, DOORH / 2, lo, dep, DOORH, jw, doorTrimMat, false), box(xc, DOORH / 2, hi, dep, DOORH, jw, doorTrimMat, false));
+    ms.push(box(xc, DOORH + hh / 2, (lo + hi) / 2, dep, hh, (hi - lo) + 2 * jw, doorTrimMat, false)); }
   return ms;
 }
 // A hall extended straight off the end of another hall — the opening spans the full shared wall —
 // reads as one long corridor, so it gets no header/trim (just an open span).
 function isSeamlessConn(c) { const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); if (!a || !b || a.type !== 'hall' || b.type !== 'hall') return false; const full = (c.side === 'N' || c.side === 'S') ? (a.x1 - a.x0) : (a.z1 - a.z0); return Math.abs((c.hi - c.lo) - full) < 0.06; }
-// Build the header on BOTH rooms' walls (so the wall reads as continuing over the door from either
-// side) plus black casing framing the opening on each room's face; seamless hall extensions get nothing.
+// Header wall over the door on BOTH rooms' walls (so the wall reads as continuing above the opening
+// from either side) plus one bold black portal frame; seamless hall extensions get nothing.
 function buildConnDoors(c) { if (isSeamlessConn(c)) return []; const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); let ms = [];
-  if (a) ms = ms.concat(buildDoorway(a, c.side, c.lo, c.hi), buildFaceCasing(a, c.side, c.lo, c.hi));
-  if (b) ms = ms.concat(buildDoorway(b, OPP[c.side], c.lo, c.hi), buildFaceCasing(b, OPP[c.side], c.lo, c.hi));
-  return ms; }
+  if (a) ms = ms.concat(buildDoorway(a, c.side, c.lo, c.hi));
+  if (b) ms = ms.concat(buildDoorway(b, OPP[c.side], c.lo, c.hi));
+  return ms.concat(buildDoorPortal(c)); }
 function applyTheme(s, save = true) {
   const fm = floorMatFor(s.floorType);
   s.wallMat.color.set(s.wallColor);
