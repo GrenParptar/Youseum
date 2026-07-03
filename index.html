@@ -345,16 +345,17 @@ function buildSpaceBase(s) {
   s.stars = new THREE.Group(); const sm = new THREE.MeshBasicMaterial({ color: 0xbcd0ff }); for (let i = 0; i < 26; i++) { const stt = new THREE.Mesh(new THREE.SphereGeometry(0.03 + Math.random() * 0.03, 6, 6), sm); stt.position.set(cx + (Math.random() - .5) * w * .9, H - 0.25, cz + (Math.random() - .5) * d * .9); s.stars.add(stt); } scene.add(s.stars); s.stars.visible = s.floorType === 'dark';
   s.sides = { N: [], S: [], E: [], W: [] }; s.walls = { N: [], S: [], E: [], W: [] }; s.frames = { N: [], S: [], E: [], W: [] };
 }
-const FRAME_MAXHALF = 1.6; // widest a hung frame's border can get from its centre — reserve this so frames never overhang a segment end
-function wallSeg(s, side, a, b, inset, startOpen, endOpen) { // solid wall segment + frames; a..b along the side's axis. inset pushes a shared wall onto its own side so adjacent walls sit back-to-back instead of overlapping.
+// Reserve a frame's half-width plus a margin at each segment end when laying frames out. The margin
+// clears both a door jamb (which sits ~0.2 onto the wall) and a wall corner: frames stand ~0.24 off
+// the wall, so two on perpendicular walls would intersect near a corner unless each is set back this far.
+const FRAME_MAXHALF = 1.6, FRAME_ENDCLEAR = FRAME_MAXHALF + 0.3;
+function wallSeg(s, side, a, b, inset) { // solid wall segment + frames; a..b along the side's axis. inset pushes a shared wall onto its own side so adjacent walls sit back-to-back instead of overlapping.
   const mat = s.wallMat; const dir = (side === 'N' || side === 'W') ? 1 : -1; let mesh, wp;
   if (side === 'N' || side === 'S') { wp = (side === 'N' ? s.z0 : s.z1) + dir * inset; mesh = box((a + b) / 2, H / 2, wp, b - a, H, T, mat); }
   else { wp = (side === 'E' ? s.x1 : s.x0) + dir * inset; mesh = box(wp, H / 2, (a + b) / 2, T, H, b - a, mat); }
   mesh.userData.add = { id: s.id, side }; wallMeshes.push(mesh); s.walls[side].push(mesh);
   const bb = (side === 'N' || side === 'S') ? box((a + b) / 2, 0.12, wp + dir * (T / 2 + 0.03), b - a, 0.24, 0.06, baseMat, false) : box(wp + dir * (T / 2 + 0.03), 0.12, (a + b) / 2, 0.06, 0.24, b - a, baseMat, false); mesh.userData.bb = bb;
-  // Frame-centre bounds: reserve the frame's half-width plus clearance at each end — extra at a
-  // doorway end so a wide frame can't bleed into the door jamb, just a hair at a wall corner.
-  const cS = a + FRAME_MAXHALF + (startOpen ? 0.35 : 0.06), cE = b - FRAME_MAXHALF - (endOpen ? 0.35 : 0.06);
+  const cS = a + FRAME_ENDCLEAR, cE = b - FRAME_ENDCLEAR;
   if (cE < cS - 0.01) return; // segment too short to hold a framed piece clear of its ends
   const n = Math.max(1, Math.floor((cE - cS) / 4.2) + 1);
   for (let k = 0; k < n; k++) { const u = n === 1 ? (cS + cE) / 2 : cS + (cE - cS) * k / (n - 1); let x, y = 1.75, z, ry;
@@ -366,9 +367,8 @@ function buildWallSide(s, side) {
   const axisIsX = (side === 'N' || side === 'S'); const lo = axisIsX ? s.x0 : s.z0, hi = axisIsX ? s.x1 : s.z1;
   const inset = (side === s.parentSide && s.sides[side].length > 0) ? T : 0;
   const ops = s.sides[side].slice().sort((p, q) => p[0] - q[0]); let cur = lo;
-  // A segment end is "open" (borders a doorway) when it isn't the wall's own lo/hi corner.
-  for (const [a, b] of ops) { if (a > cur + 0.05) wallSeg(s, side, cur, a, inset, cur > lo + 0.05, true); cur = Math.max(cur, b); }
-  if (cur < hi - 0.05) wallSeg(s, side, cur, hi, inset, cur > lo + 0.05, false);
+  for (const [a, b] of ops) { if (a > cur + 0.05) wallSeg(s, side, cur, a, inset); cur = Math.max(cur, b); }
+  if (cur < hi - 0.05) wallSeg(s, side, cur, hi, inset);
 }
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
 function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
