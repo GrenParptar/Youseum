@@ -295,7 +295,7 @@ function roundRect(x, a, b, w, h, r) { x.beginPath(); x.moveTo(a + r, b); x.arcT
 function drawPlate(f) { const x = f.plate.ctx; x.clearRect(0, 0, 512, 110); if (!f.filled && !f.title) { f.plateMesh.visible = false; f.plate.tex.needsUpdate = true; return; } f.plateMesh.visible = true; x.fillStyle = '#ece6d8'; roundRect(x, 6, 6, 500, 98, 12); x.fill(); x.strokeStyle = '#c9c0ac'; x.lineWidth = 2; x.stroke(); x.fillStyle = '#2a2a2a'; x.textAlign = 'center'; x.font = f.title ? '600 40px Georgia, serif' : 'italic 30px Georgia, serif'; x.fillText(f.title || 'Untitled', 256, 60); f.plate.tex.needsUpdate = true; }
 
 const loader = new THREE.TextureLoader(); const frames = []; const frameById = new Map();
-function addFrame(id, x, y, z, ry) {
+function addFrame(id, x, y, z, ry, maxHalf) {
   const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; scene.add(g);
   const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), shadowMat); shadow.position.set(0.04, -0.04, -0.02); g.add(shadow);
   const border = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), frameMat); border.position.z = 0.005; g.add(border);
@@ -303,10 +303,14 @@ function addFrame(id, x, y, z, ry) {
   const mat = new THREE.MeshBasicMaterial({ map: placeholderTex() }); const art = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat); art.position.z = 0.02; g.add(art);
   const plate = makePlate(); const plateMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.18), new THREE.MeshBasicMaterial({ map: plate.tex, transparent: true })); plateMesh.position.z = 0.02; g.add(plateMesh);
   const lightbar = new THREE.Mesh(new THREE.BoxGeometry(1, 0.05, 0.14), new THREE.MeshStandardMaterial({ color: 0xfff4e0, emissive: 0xfff0d0, emissiveIntensity: 0.55 })); g.add(lightbar);
-  const f = { id, group: g, art, border, matte, mat, plate, plateMesh, lightbar, shadow, video: null, srcURL: null, title: '', filled: false };
+  const f = { id, group: g, art, border, matte, mat, plate, plateMesh, lightbar, shadow, video: null, srcURL: null, title: '', filled: false, maxHalf: (maxHalf ?? Infinity) };
   frames.push(f); frameById.set(id, f); sizeFrame(f, 1.7, 1.2); drawPlate(f); return f;
 }
-function sizeFrame(f, w, h) { const s = Math.min(2.8 / w, 2.0 / h, 1.7); w *= s; h *= s; f.art.scale.set(w, h, 1); f.matte.scale.set(w + 0.14, h + 0.14, 1); f.border.scale.set(w + 0.32, h + 0.32, 1); f.shadow.scale.set(w + 0.32, h + 0.32, 1); f.lightbar.position.set(0, h / 2 + 0.28, 0.16); f.lightbar.scale.x = w * 0.7; f.plateMesh.position.y = -(h / 2 + 0.30); f.plateMesh.scale.x = Math.min(Math.max(w * 0.65, 0.5), 1.4); }
+// maxHalf caps the frame's outer (border) half-width so a frame placed near a doorway or corner
+// shrinks to fit its wall instead of bleeding into the door jamb / a perpendicular wall's frame.
+function sizeFrame(f, w, h) { let s = Math.min(2.8 / w, 2.0 / h, 1.7);
+  if (isFinite(f.maxHalf)) { const capArt = 2 * f.maxHalf - 0.32; if (capArt > 0.2 && w * s > capArt) s = capArt / w; }
+  w *= s; h *= s; f.art.scale.set(w, h, 1); f.matte.scale.set(w + 0.14, h + 0.14, 1); f.border.scale.set(w + 0.32, h + 0.32, 1); f.shadow.scale.set(w + 0.32, h + 0.32, 1); f.lightbar.position.set(0, h / 2 + 0.28, 0.16); f.lightbar.scale.x = w * 0.7; f.plateMesh.position.y = -(h / 2 + 0.30); f.plateMesh.scale.x = Math.min(Math.max(w * 0.65, 0.5), 1.4); }
 function fitAspect(f, a) { let h = 1.4, w = h * a; if (w > 2.8) { w = 2.8; h = w / a; } if (h > 2.0) { h = 2.0; w = h * a; } sizeFrame(f, w, h); }
 function removeFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; } if (audibleVideo === f) audibleVideo = null; scene.remove(f.group); const i = frames.indexOf(f); if (i >= 0) frames.splice(i, 1); frameById.delete(f.id); DB.del(f.id); }
 
@@ -345,7 +349,11 @@ function buildSpaceBase(s) {
   s.stars = new THREE.Group(); const sm = new THREE.MeshBasicMaterial({ color: 0xbcd0ff }); for (let i = 0; i < 26; i++) { const stt = new THREE.Mesh(new THREE.SphereGeometry(0.03 + Math.random() * 0.03, 6, 6), sm); stt.position.set(cx + (Math.random() - .5) * w * .9, H - 0.25, cz + (Math.random() - .5) * d * .9); s.stars.add(stt); } scene.add(s.stars); s.stars.visible = s.floorType === 'dark';
   s.sides = { N: [], S: [], E: [], W: [] }; s.walls = { N: [], S: [], E: [], W: [] }; s.frames = { N: [], S: [], E: [], W: [] };
 }
-function wallSeg(s, side, a, b, inset) { // solid wall segment + frames; a..b along the side's axis. inset pushes a shared wall onto its own side so adjacent walls sit back-to-back instead of overlapping.
+// Clearance a frame's outer edge should keep from a segment end so it doesn't overlap a door jamb
+// (which sits ~0.22 onto the wall) or, at a corner, a perpendicular wall's frame (both stand ~0.24
+// off the wall). Frames stay put; a frame that can't keep this clearance at full size is shrunk.
+const FRAME_JAMBCLR = 0.34, FRAME_CORNERCLR = 0.34;
+function wallSeg(s, side, a, b, inset, startOpen, endOpen) { // solid wall segment + frames; a..b along the side's axis. inset pushes a shared wall onto its own side so adjacent walls sit back-to-back instead of overlapping.
   const mat = s.wallMat; const dir = (side === 'N' || side === 'W') ? 1 : -1; let mesh, wp;
   if (side === 'N' || side === 'S') { wp = (side === 'N' ? s.z0 : s.z1) + dir * inset; mesh = box((a + b) / 2, H / 2, wp, b - a, H, T, mat); }
   else { wp = (side === 'E' ? s.x1 : s.x0) + dir * inset; mesh = box(wp, H / 2, (a + b) / 2, T, H, b - a, mat); }
@@ -353,17 +361,21 @@ function wallSeg(s, side, a, b, inset) { // solid wall segment + frames; a..b al
   const bb = (side === 'N' || side === 'S') ? box((a + b) / 2, 0.12, wp + dir * (T / 2 + 0.03), b - a, 0.24, 0.06, baseMat, false) : box(wp + dir * (T / 2 + 0.03), 0.12, (a + b) / 2, 0.06, 0.24, b - a, baseMat, false); mesh.userData.bb = bb;
   const len = b - a, margin = 0.7, usable = len - 2 * margin; if (usable < 1.3) return;
   const n = Math.max(1, Math.floor(usable / 4.2));
+  const clrA = startOpen ? FRAME_JAMBCLR : FRAME_CORNERCLR, clrB = endOpen ? FRAME_JAMBCLR : FRAME_CORNERCLR;
   for (let k = 0; k < n; k++) { const u = a + margin + usable * (k + 0.5) / n; let x, y = 1.75, z, ry;
+    const maxHalf = Math.min(u - (a + clrA), (b - clrB) - u); // shrink this frame if it'd reach past its wall end
+    if (maxHalf < 0.4) continue; // no room for even a small piece here
     if (side === 'N') { x = u; z = wp + T / 2 + 0.04; ry = 0; } else if (side === 'S') { x = u; z = wp - T / 2 - 0.04; ry = Math.PI; }
     else if (side === 'E') { x = wp - T / 2 - 0.04; z = u; ry = -Math.PI / 2; } else { x = wp + T / 2 + 0.04; z = u; ry = Math.PI / 2; }
-    s.frames[side].push(addFrame(`${s.id}:${side}:${k}_${Math.round(u * 10)}`, x, y, z, ry)); }
+    s.frames[side].push(addFrame(`${s.id}:${side}:${k}_${Math.round(u * 10)}`, x, y, z, ry, maxHalf)); }
 }
 function buildWallSide(s, side) {
   const axisIsX = (side === 'N' || side === 'S'); const lo = axisIsX ? s.x0 : s.z0, hi = axisIsX ? s.x1 : s.z1;
   const inset = (side === s.parentSide && s.sides[side].length > 0) ? T : 0;
   const ops = s.sides[side].slice().sort((p, q) => p[0] - q[0]); let cur = lo;
-  for (const [a, b] of ops) { if (a > cur + 0.05) wallSeg(s, side, cur, a, inset); cur = Math.max(cur, b); }
-  if (cur < hi - 0.05) wallSeg(s, side, cur, hi, inset);
+  // A segment end is "open" (borders a doorway) when it isn't the wall's own lo/hi corner.
+  for (const [a, b] of ops) { if (a > cur + 0.05) wallSeg(s, side, cur, a, inset, cur > lo + 0.05, true); cur = Math.max(cur, b); }
+  if (cur < hi - 0.05) wallSeg(s, side, cur, hi, inset, cur > lo + 0.05, false);
 }
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
 function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
