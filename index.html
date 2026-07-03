@@ -253,6 +253,7 @@ const floorMatFor = (k) => FLOOR_MAT[k] || FLOOR_MAT.wood;
 // HALLLEN is kept a bit longer than a wing's footprint along the hall (RW) so a wing fits within
 // one hall segment's side wall, and wings on two adjacent hall segments don't clip into each other.
 const RW = 18, RD = 14, HALLW = 4.8, HALLLEN = 20, H = 5, DOORW = 3.2, DOORH = 3.0, T = 0.4;
+const HEADH = 0.28; // height of the black lintel band above a doorway; the room-colored wall starts above it
 // Preset themes: quick-apply bundles of wall color, floor, roughness, metalness, lighting
 const PRESETS = [
   { id: 'classic',  name: 'Classic Hall', wall: 0xd8cdb6, floor: 'wood',     rough: .8,  metal: 0,  light: 0xffe6c0, li: 46, accent: 0xffcf95 },
@@ -370,7 +371,9 @@ function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, sid
 // plane as this space's wall segments. The black portal frame is added separately by buildDoorPortal.
 function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
   const inset = (side === s.parentSide && (s.sides?.[side]?.length > 0)) ? T : 0;
-  const dir = (side === 'N' || side === 'W') ? 1 : -1; const midY = (DOORH + H) / 2, hdrH = H - DOORH;
+  // Start the room-colored header above the black lintel band (with a hidden overlap) so its colour
+  // never sits behind / z-fights the black frame at the top of the opening.
+  const dir = (side === 'N' || side === 'W') ? 1 : -1; const yBot = DOORH + HEADH - 0.05, midY = (yBot + H) / 2, hdrH = H - yBot;
   if (side === 'N' || side === 'S') { const z = (side === 'N' ? s.z0 : s.z1) + dir * inset; return [box((lo + hi) / 2, midY, z, hi - lo, hdrH, T, mat, false)]; }
   const x = (side === 'E' ? s.x1 : s.x0) + dir * inset; return [box(x, midY, (lo + hi) / 2, T, hdrH, hi - lo, mat, false)];
 }
@@ -381,7 +384,9 @@ function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
 // frame for every door, so they all read like a single consistent portal.
 function buildDoorPortal(c) { const a = spaces.get(c.a); if (!a) return []; const side = c.side, lo = c.lo, hi = c.hi;
   const axisIsX = (side === 'N' || side === 'S'); const childDir = (side === 'S' || side === 'E') ? 1 : -1;
-  const jw = 0.44, hh = 0.4, dep = 2 * T + 0.24; const ms = [];
+  // jw is as thin as a jamb can be: a hall mouth's own side wall (thickness T) sits on the opening
+  // edge, so the jamb must be a hair wider than T to cap it without the wall poking out the sides.
+  const jw = T + 0.04, hh = HEADH, dep = 2 * T + 0.1; const ms = [];
   if (axisIsX) { const zc = (side === 'N' ? a.z0 : a.z1) + childDir * (T / 2);
     ms.push(box(lo, DOORH / 2, zc, jw, DOORH, dep, doorTrimMat, false), box(hi, DOORH / 2, zc, jw, DOORH, dep, doorTrimMat, false)); // jambs
     ms.push(box((lo + hi) / 2, DOORH + hh / 2, zc, (hi - lo) + 2 * jw, hh, dep, doorTrimMat, false)); } // head
