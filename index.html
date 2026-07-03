@@ -350,9 +350,11 @@ function buildSpaceBase(s) {
   s.sides = { N: [], S: [], E: [], W: [] }; s.walls = { N: [], S: [], E: [], W: [] }; s.frames = { N: [], S: [], E: [], W: [] };
 }
 // Clearance a frame's outer edge should keep from a segment end so it doesn't overlap a door jamb
-// (which sits ~0.22 onto the wall) or, at a corner, a perpendicular wall's frame (both stand ~0.24
-// off the wall). Frames stay put; a frame that can't keep this clearance at full size is shrunk.
-const FRAME_JAMBCLR = 0.34, FRAME_CORNERCLR = 0.34;
+// or, at a corner, a perpendicular wall's frame — plus a visible strip of plain wall beyond that, so
+// a shrunk frame reads as intentionally placed rather than jammed right up against the trim/corner.
+const FRAME_WALLGAP = 0.28;
+const FRAME_JAMBCLR = 0.22 + FRAME_WALLGAP; // door jamb sits ~0.22 onto the wall
+const FRAME_CORNERCLR = 0.24 + FRAME_WALLGAP; // a perpendicular wall's frame stands ~0.24 off the wall
 function wallSeg(s, side, a, b, inset, startOpen, endOpen) { // solid wall segment + frames; a..b along the side's axis. inset pushes a shared wall onto its own side so adjacent walls sit back-to-back instead of overlapping.
   const mat = s.wallMat; const dir = (side === 'N' || side === 'W') ? 1 : -1; let mesh, wp;
   if (side === 'N' || side === 'S') { wp = (side === 'N' ? s.z0 : s.z1) + dir * inset; mesh = box((a + b) / 2, H / 2, wp, b - a, H, T, mat); }
