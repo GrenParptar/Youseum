@@ -371,13 +371,25 @@ function wallSeg(s, side, a, b, inset, startOpen, endOpen) { // solid wall segme
     else if (side === 'E') { x = wp - T / 2 - 0.04; z = u; ry = -Math.PI / 2; } else { x = wp + T / 2 + 0.04; z = u; ry = Math.PI / 2; }
     s.frames[side].push(addFrame(`${s.id}:${side}:${k}_${Math.round(u * 10)}`, x, y, z, ry, maxHalf)); }
 }
+// A wall segment that reaches this side's true lo/hi corner still isn't necessarily a plain closed
+// corner: the PERPENDICULAR wall meeting it there might itself have a doorway opening right up to
+// that shared corner point, in which case a door portal (with its jamb) actually sits there too, and
+// a frame needs full jamb clearance, not just the smaller generic corner clearance.
+function cornerHasDoor(s, side, isLoEnd) {
+  const axisIsX = (side === 'N' || side === 'S');
+  const adjSide = axisIsX ? (isLoEnd ? 'W' : 'E') : (isLoEnd ? 'N' : 'S');
+  const corner = axisIsX ? (side === 'N' ? s.z0 : s.z1) : (side === 'W' ? s.x0 : s.x1);
+  return (s.sides[adjSide] || []).some(([a, b]) => corner > a - 0.5 && corner < b + 0.5);
+}
 function buildWallSide(s, side) {
   const axisIsX = (side === 'N' || side === 'S'); const lo = axisIsX ? s.x0 : s.z0, hi = axisIsX ? s.x1 : s.z1;
   const inset = (side === s.parentSide && s.sides[side].length > 0) ? T : 0;
   const ops = s.sides[side].slice().sort((p, q) => p[0] - q[0]); let cur = lo;
-  // A segment end is "open" (borders a doorway) when it isn't the wall's own lo/hi corner.
-  for (const [a, b] of ops) { if (a > cur + 0.05) wallSeg(s, side, cur, a, inset, cur > lo + 0.05, true); cur = Math.max(cur, b); }
-  if (cur < hi - 0.05) wallSeg(s, side, cur, hi, inset, cur > lo + 0.05, false);
+  // A segment end is "open" (needs jamb-grade clearance) when it borders a doorway on this same
+  // wall, OR — when the end sits at the room's true corner — a doorway on the wall meeting it there.
+  const loCornerOpen = cornerHasDoor(s, side, true), hiCornerOpen = cornerHasDoor(s, side, false);
+  for (const [a, b] of ops) { if (a > cur + 0.05) wallSeg(s, side, cur, a, inset, cur > lo + 0.05 || loCornerOpen, true); cur = Math.max(cur, b); }
+  if (cur < hi - 0.05) wallSeg(s, side, cur, hi, inset, cur > lo + 0.05 || loCornerOpen, hiCornerOpen);
 }
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
 function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
