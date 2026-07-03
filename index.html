@@ -345,20 +345,15 @@ function buildSpaceBase(s) {
   s.stars = new THREE.Group(); const sm = new THREE.MeshBasicMaterial({ color: 0xbcd0ff }); for (let i = 0; i < 26; i++) { const stt = new THREE.Mesh(new THREE.SphereGeometry(0.03 + Math.random() * 0.03, 6, 6), sm); stt.position.set(cx + (Math.random() - .5) * w * .9, H - 0.25, cz + (Math.random() - .5) * d * .9); s.stars.add(stt); } scene.add(s.stars); s.stars.visible = s.floorType === 'dark';
   s.sides = { N: [], S: [], E: [], W: [] }; s.walls = { N: [], S: [], E: [], W: [] }; s.frames = { N: [], S: [], E: [], W: [] };
 }
-// Reserve a frame's half-width plus a margin at each segment end when laying frames out. The margin
-// clears both a door jamb (which sits ~0.2 onto the wall) and a wall corner: frames stand ~0.24 off
-// the wall, so two on perpendicular walls would intersect near a corner unless each is set back this far.
-const FRAME_MAXHALF = 1.6, FRAME_ENDCLEAR = FRAME_MAXHALF + 0.3;
 function wallSeg(s, side, a, b, inset) { // solid wall segment + frames; a..b along the side's axis. inset pushes a shared wall onto its own side so adjacent walls sit back-to-back instead of overlapping.
   const mat = s.wallMat; const dir = (side === 'N' || side === 'W') ? 1 : -1; let mesh, wp;
   if (side === 'N' || side === 'S') { wp = (side === 'N' ? s.z0 : s.z1) + dir * inset; mesh = box((a + b) / 2, H / 2, wp, b - a, H, T, mat); }
   else { wp = (side === 'E' ? s.x1 : s.x0) + dir * inset; mesh = box(wp, H / 2, (a + b) / 2, T, H, b - a, mat); }
   mesh.userData.add = { id: s.id, side }; wallMeshes.push(mesh); s.walls[side].push(mesh);
   const bb = (side === 'N' || side === 'S') ? box((a + b) / 2, 0.12, wp + dir * (T / 2 + 0.03), b - a, 0.24, 0.06, baseMat, false) : box(wp + dir * (T / 2 + 0.03), 0.12, (a + b) / 2, 0.06, 0.24, b - a, baseMat, false); mesh.userData.bb = bb;
-  const cS = a + FRAME_ENDCLEAR, cE = b - FRAME_ENDCLEAR;
-  if (cE < cS - 0.01) return; // segment too short to hold a framed piece clear of its ends
-  const n = Math.max(1, Math.floor((cE - cS) / 4.2) + 1);
-  for (let k = 0; k < n; k++) { const u = n === 1 ? (cS + cE) / 2 : cS + (cE - cS) * k / (n - 1); let x, y = 1.75, z, ry;
+  const len = b - a, margin = 0.7, usable = len - 2 * margin; if (usable < 1.3) return;
+  const n = Math.max(1, Math.floor(usable / 4.2));
+  for (let k = 0; k < n; k++) { const u = a + margin + usable * (k + 0.5) / n; let x, y = 1.75, z, ry;
     if (side === 'N') { x = u; z = wp + T / 2 + 0.04; ry = 0; } else if (side === 'S') { x = u; z = wp - T / 2 - 0.04; ry = Math.PI; }
     else if (side === 'E') { x = wp - T / 2 - 0.04; z = u; ry = -Math.PI / 2; } else { x = wp + T / 2 + 0.04; z = u; ry = Math.PI / 2; }
     s.frames[side].push(addFrame(`${s.id}:${side}:${k}_${Math.round(u * 10)}`, x, y, z, ry)); }
