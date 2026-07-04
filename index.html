@@ -343,7 +343,7 @@ function buildSpaceFrom(type, parent, side, uHit) {
 const gifHost = document.createElement('div'); gifHost.style.cssText = 'position:fixed;left:-10000px;top:0;opacity:0;pointer-events:none;'; document.body.appendChild(gifHost);
 const gifAnims = []; let audibleVideo = null;
 function setAudibleVideo(f) { audibleVideo = f; for (const fr of frames) if (fr.video) fr.video.muted = (fr !== f); }
-function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.dead = true; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); a.img?.remove(); if (a.frames) for (const fr of a.frames) fr.bmp.close?.(); a.tex.dispose?.(); f.gif = null; }
+function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.dead = true; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); a.img?.remove(); a.frames = null; a.tex.dispose?.(); f.gif = null; }
 function applyImage(f, url) { stopGif(f); loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (f.video) { f.video.pause(); f.video = null; } f.mat.map = t; f.mat.needsUpdate = true; fitAspect(f, t.image.width / t.image.height); f.filled = true; f.srcURL = url; drawPlate(f); updateCount(); }); }
 function applyVideo(f, url) { stopGif(f); const v = document.createElement('video'); v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play().catch(() => {}); const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; f.mat.map = t; f.mat.needsUpdate = true; f.video = v; f.srcURL = url; v.addEventListener('loadedmetadata', () => fitAspect(f, (v.videoWidth || 16) / (v.videoHeight || 9))); f.filled = true; drawPlate(f); updateCount(); }
 function applyGif(f, url) {
@@ -362,13 +362,12 @@ async function decodeGif(url, anim, f) {
   try {
     const buf = await (await fetch(url)).arrayBuffer(); if (anim.dead) return;
     const g = parseGif(buf); if (!g.frames.length) throw new Error('no frames');
-    for (let i = 0; i < g.frames.length; i++) {
-      if (anim.dead) return;
-      const fr = g.frames[i]; const bmp = await createImageBitmap(new ImageData(fr.rgba, g.width, g.height));
-      if (anim.dead) { bmp.close(); return; }
-      anim.frames.push({ bmp, dur: fr.delay });
-      if (i === 0) { anim.cv.width = g.width; anim.cv.height = g.height; fitAspect(f, g.width / g.height); }
-    }
+    // Store frames as CPU-side ImageData (not GPU-backed ImageBitmaps) and blit the current
+    // one via putImageData — only one texture per GIF, so many GIFs don't exhaust iOS GPU
+    // memory (which showed up as some GIFs rendering black on reload).
+    anim.cv.width = g.width; anim.cv.height = g.height; fitAspect(f, g.width / g.height);
+    anim.frames = g.frames.map(fr => ({ data: new ImageData(fr.rgba, g.width, g.height), dur: fr.delay }));
+    anim.cx.putImageData(anim.frames[0].data, 0, 0); anim.tex.needsUpdate = true; anim.lastIdx = 0;
   } catch (e) { console.warn('GIF decode failed, using static fallback', e); gifImgFallback(url, anim, f); }
 }
 // Last-resort fallback if manual decode fails: show the GIF via a hidden <img> (static on iOS,
@@ -381,7 +380,9 @@ function gifImgFallback(url, anim, f) {
 // Minimal GIF87a/89a decoder → array of fully-composited RGBA frames with per-frame delays.
 function parseGif(buf) {
   const d = new Uint8Array(buf); let p = 6; const u16 = () => (d[p++] | (d[p++] << 8));
+  if (!(d[0] === 0x47 && d[1] === 0x49 && d[2] === 0x46)) throw new Error('not a GIF'); // "GIF"
   const W = u16(), H = u16(); const packed = d[p++]; const gctSize = 2 << (packed & 7); p += 2;
+  if (!W || !H || W * H > 30e6) throw new Error('bad GIF dimensions ' + W + 'x' + H); // guard giant allocations
   let gct = null; if (packed & 0x80) { gct = d.subarray(p, p + gctSize * 3); p += gctSize * 3; }
   const frames = []; const canvas = new Uint8ClampedArray(W * H * 4); let gce = null, saved = null;
   while (p < d.length) {
@@ -673,7 +674,7 @@ function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.g
     camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); } }
   if (++mapTick % 3 === 0 && (inTour || paused)) drawMap();
   for (const a of gifAnims) {
-    if (a.mode === 'dec') { if (!a.frames.length) continue; a.acc += dt * 1000; let g = 0; while (a.acc >= a.frames[a.idx].dur && g++ < a.frames.length) { a.acc -= a.frames[a.idx].dur; a.idx = (a.idx + 1) % a.frames.length; } if (a.idx !== a.lastIdx) { a.lastIdx = a.idx; a.cx.drawImage(a.frames[a.idx].bmp, 0, 0, a.cv.width, a.cv.height); a.tex.needsUpdate = true; } }
+    if (a.mode === 'dec') { if (!a.frames || !a.frames.length) continue; a.acc += dt * 1000; let g = 0; while (a.acc >= a.frames[a.idx].dur && g++ < a.frames.length) { a.acc -= a.frames[a.idx].dur; a.idx = (a.idx + 1) % a.frames.length; } if (a.idx !== a.lastIdx) { a.lastIdx = a.idx; a.cx.putImageData(a.frames[a.idx].data, 0, 0); a.tex.needsUpdate = true; } }
     else if (a.img.naturalWidth) { a.cx.drawImage(a.img, 0, 0, a.cv.width, a.cv.height); a.tex.needsUpdate = true; }
   }
   (composer || renderer).render(scene, camera);
