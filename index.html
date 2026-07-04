@@ -303,7 +303,7 @@ function addFrame(id, x, y, z, ry, maxHalf) {
   const mat = new THREE.MeshBasicMaterial({ map: placeholderTex() }); const art = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat); art.position.z = 0.02; g.add(art);
   const plate = makePlate(); const plateMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.18), new THREE.MeshBasicMaterial({ map: plate.tex, transparent: true })); plateMesh.position.z = 0.02; g.add(plateMesh);
   const lightbar = new THREE.Mesh(new THREE.BoxGeometry(1, 0.05, 0.14), new THREE.MeshStandardMaterial({ color: 0xfff4e0, emissive: 0xfff0d0, emissiveIntensity: 0.55 })); g.add(lightbar);
-  const f = { id, group: g, art, border, matte, mat, plate, plateMesh, lightbar, shadow, video: null, srcURL: null, title: '', filled: false, maxHalf: (maxHalf ?? Infinity) };
+  const f = { id, group: g, art, border, matte, mat, plate, plateMesh, lightbar, shadow, video: null, srcURL: null, title: '', filled: false, maxHalf: (maxHalf ?? Infinity), baseMaxHalf: (maxHalf ?? Infinity) };
   frames.push(f); frameById.set(id, f); sizeFrame(f, 1.7, 1.2); drawPlate(f); return f;
 }
 // maxHalf caps the frame's outer (border) half-width so a frame placed near a doorway or corner
@@ -419,7 +419,34 @@ function reclampSideCorners(s, side) {
     const [a, b, startOpen, endOpen] = seg;
     const clrA = startOpen ? FRAME_JAMBCLR : FRAME_CORNERCLR, clrB = endOpen ? FRAME_JAMBCLR : FRAME_CORNERCLR;
     const maxHalf = Math.min(u - (a + clrA), (b - clrB) - u);
-    if (Math.abs((isFinite(f.maxHalf) ? f.maxHalf : 1e9) - maxHalf) > 0.001) { f.maxHalf = maxHalf; if (f.natW != null) sizeFrame(f, f.natW, f.natH); }
+    if (Math.abs((isFinite(f.baseMaxHalf) ? f.baseMaxHalf : 1e9) - maxHalf) > 0.001) { f.baseMaxHalf = f.maxHalf = maxHalf; if (f.natW != null) sizeFrame(f, f.natW, f.natH); }
+  }
+}
+// Precisely shrink any frame whose border would overlap a real door-portal trim box (jamb/head),
+// using the ACTUAL built geometry rather than clearance heuristics — so it catches every case,
+// including a jamb protruding along a perpendicular wall near a shared corner. Idempotent: each
+// frame recomputes from its placement-time baseMaxHalf, so removing a door lets a frame grow back.
+function applyFrameClamps() {
+  const trims = [];
+  for (const c of connections) for (const m of (c.doorMeshes || [])) if (m.material === doorTrimMat) trims.push(new THREE.Box3().setFromObject(m));
+  for (const f of frames) {
+    let allow = isFinite(f.baseMaxHalf) ? f.baseMaxHalf : Infinity;
+    if (trims.length) {
+      const side = f.id.split(':')[1]; const axisX = (side === 'N' || side === 'S');
+      const p = f.group.position; const u = axisX ? p.x : p.z, depthC = axisX ? p.z : p.x;
+      const bhy = f.border.scale.y / 2, ymin = p.y - bhy, ymax = p.y + bhy;
+      for (const t of trims) {
+        if (t.max.y <= ymin + 0.02 || t.min.y >= ymax - 0.02) continue;              // no shared height → can't touch
+        const dmin = axisX ? t.min.z : t.min.x, dmax = axisX ? t.max.z : t.max.x;
+        if (dmax <= depthC - 0.28 || dmin >= depthC + 0.28) continue;                // frame's plane not in the trim's depth band
+        const lmin = axisX ? t.min.x : t.min.z, lmax = axisX ? t.max.x : t.max.z;    // trim's extent along the frame's wall
+        if (lmax <= u) allow = Math.min(allow, u - lmax - FRAME_WALLGAP);            // trim sits to one side → keep the border clear of it
+        else if (lmin >= u) allow = Math.min(allow, lmin - u - FRAME_WALLGAP);
+        else allow = Math.min(allow, 0.3);
+      }
+    }
+    allow = Math.max(0.3, allow);
+    if (Math.abs((isFinite(f.maxHalf) ? f.maxHalf : 1e9) - allow) > 0.001) { f.maxHalf = allow; if (f.natW != null) sizeFrame(f, f.natW, f.natH); }
   }
 }
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
@@ -509,7 +536,7 @@ function buildSpaceFrom(type, parent, side, uHit) {
   for (const sd of SIDES) buildWallSide(s, sd);
   const conn = { a: parent.id, side, lo: olo, hi: ohi }; conn.doorMeshes = buildConnDoors(conn);
   connections.push(conn);
-  applyTheme(s, false); saveConfig(); buildWingEditor(); updateCount();
+  applyTheme(s, false); applyFrameClamps(); saveConfig(); buildWingEditor(); updateCount();
   toast('New ' + type + ' built — walk through the opening');
   pushUndo('build ' + type, () => deleteSpace(s.id, { undo: false }));
 }
@@ -609,7 +636,7 @@ async function deleteSpace(id, opts = {}) {
   disposeSpace(s); spaces.delete(id);
   for (const r of reseal) { (r.doorMeshes || []).forEach(removeBox); const o = spaces.get(r.otherId); if (o) { const arr = o.sides[r.otherSide]; const idx = arr.findIndex(p => Math.abs(p[0] - r.lo) < 0.05 && Math.abs(p[1] - r.hi) < 0.05); if (idx >= 0) arr.splice(idx, 1); rebuildWithCorners(o, r.otherSide); } }
   if (currentId() === null) { const first = spaces.values().next().value; if (first) teleport(first.id); }
-  saveConfig(); buildWingEditor(); updateCount(); toast('Deleted ' + s.name);
+  applyFrameClamps(); saveConfig(); buildWingEditor(); updateCount(); toast('Deleted ' + s.name);
   if (opts.undo && snap) pushUndo('delete ' + snap.s.type, () => rebuildSpace(snap));
 }
 function rebuildSpace(snap) {
@@ -621,7 +648,7 @@ function rebuildSpace(snap) {
   for (const c of snap.conns) { const conn = connections.find(x => x.a === c.a && x.side === c.side && Math.abs(x.lo - c.lo) < 0.05); if (conn) conn.doorMeshes = buildConnDoors(conn); }
   applyTheme(s, false);
   for (const rec of snap.media) { const f = frameById.get(rec.frame); if (f) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); DB.put(rec).catch(() => {}); drawPlate(f); } }
-  saveConfig(); buildWingEditor(); updateCount();
+  applyFrameClamps(); saveConfig(); buildWingEditor(); updateCount();
 }
 const updateCount = () => document.getElementById('count').textContent = `${frames.filter(f => f.filled).length} / ${frames.length} filled`;
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
@@ -939,7 +966,7 @@ async function boot() {
     else { const preset = PRESETS[0]; const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2 }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); saveConfig(); }
     for (const r of mediaRecs) { const f = frameById.get(r.frame); if (!f) continue; if (r.title) f.title = r.title; if (r.blob) applyByType(f, r.type, URL.createObjectURL(r.blob)); else drawPlate(f); }
   }
-  buildWingEditor(); updateCount(); updateUndoBtn();
+  applyFrameClamps(); buildWingEditor(); updateCount(); updateUndoBtn();
   if (!share && !config && !hadMedia) await addSamples();
   document.getElementById('loading').classList.add('hidden');
 }
