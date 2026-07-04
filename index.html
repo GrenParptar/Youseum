@@ -308,7 +308,9 @@ function addFrame(id, x, y, z, ry, maxHalf) {
 }
 // maxHalf caps the frame's outer (border) half-width so a frame placed near a doorway or corner
 // shrinks to fit its wall instead of bleeding into the door jamb / a perpendicular wall's frame.
-function sizeFrame(f, w, h) { let s = Math.min(2.8 / w, 2.0 / h, 1.7);
+// Remembers the natural (uncapped) size so reclampSideCorners() can redo just the cap later, when a
+// nearby corner's door state changes, without needing to know the media's aspect ratio again.
+function sizeFrame(f, w, h) { f.natW = w; f.natH = h; let s = Math.min(2.8 / w, 2.0 / h, 1.7);
   if (isFinite(f.maxHalf)) { const capArt = 2 * f.maxHalf - 0.32; if (capArt > 0.2 && w * s > capArt) s = capArt / w; }
   w *= s; h *= s; f.art.scale.set(w, h, 1); f.matte.scale.set(w + 0.14, h + 0.14, 1); f.border.scale.set(w + 0.32, h + 0.32, 1); f.shadow.scale.set(w + 0.32, h + 0.32, 1); f.lightbar.position.set(0, h / 2 + 0.28, 0.16); f.lightbar.scale.x = w * 0.7; f.plateMesh.position.y = -(h / 2 + 0.30); f.plateMesh.scale.x = Math.min(Math.max(w * 0.65, 0.5), 1.4); }
 function fitAspect(f, a) { let h = 1.4, w = h * a; if (w > 2.8) { w = 2.8; h = w / a; } if (h > 2.0) { h = 2.0; w = h * a; } sizeFrame(f, w, h); }
@@ -391,8 +393,33 @@ function buildWallSide(s, side) {
   for (const [a, b] of ops) { if (a > cur + 0.05) wallSeg(s, side, cur, a, inset, cur > lo + 0.05 || loCornerOpen, true); cur = Math.max(cur, b); }
   if (cur < hi - 0.05) wallSeg(s, side, cur, hi, inset, cur > lo + 0.05 || loCornerOpen, hiCornerOpen);
 }
+// Recompute clearance for EXISTING frames on a side after a nearby corner's door state may have
+// changed (a hall/wing was just built or removed on the PERPENDICULAR wall). Only touches maxHalf +
+// re-sizes in place — never removes/recreates frames — so hung photos on this side are preserved.
+function reclampSideCorners(s, side) {
+  const axisIsX = (side === 'N' || side === 'S'); const lo = axisIsX ? s.x0 : s.z0, hi = axisIsX ? s.x1 : s.z1;
+  const ops = s.sides[side].slice().sort((p, q) => p[0] - q[0]);
+  const loCornerOpen = cornerHasDoor(s, side, true), hiCornerOpen = cornerHasDoor(s, side, false);
+  const segs = []; let cur = lo;
+  for (const [a, b] of ops) { if (a > cur + 0.05) segs.push([cur, a, cur > lo + 0.05 || loCornerOpen, true]); cur = Math.max(cur, b); }
+  if (cur < hi - 0.05) segs.push([cur, hi, cur > lo + 0.05 || loCornerOpen, hiCornerOpen]);
+  for (const f of s.frames[side]) {
+    const u = axisIsX ? f.group.position.x : f.group.position.z;
+    const seg = segs.find(([a, b]) => u >= a - 0.06 && u <= b + 0.06); if (!seg) continue;
+    const [a, b, startOpen, endOpen] = seg;
+    const clrA = startOpen ? FRAME_JAMBCLR : FRAME_CORNERCLR, clrB = endOpen ? FRAME_JAMBCLR : FRAME_CORNERCLR;
+    const maxHalf = Math.min(u - (a + clrA), (b - clrB) - u);
+    if (Math.abs((isFinite(f.maxHalf) ? f.maxHalf : 1e9) - maxHalf) > 0.001) { f.maxHalf = maxHalf; if (f.natW != null) sizeFrame(f, f.natW, f.natH); }
+  }
+}
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
 function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
+// Whenever a room gains or loses an opening on one side, frames on its PERPENDICULAR sides near
+// that same corner may need their clearance recomputed (a door now sits right at that shared
+// corner, per cornerHasDoor). Rebuild the changed side normally, but only RECLAMP (not rebuild) the
+// perpendicular sides — rebuilding them would delete and recreate their frames, permanently wiping
+// any photos already hung there.
+function rebuildWithCorners(s, side) { rebuildWallSide(s, side); const perp = (side === 'N' || side === 'S') ? ['E', 'W'] : ['N', 'S']; for (const p of perp) reclampSideCorners(s, p); }
 // Just the header (wall over the door) for one space's wall. Inset-aware so it lands on the same
 // plane as this space's wall segments. The black portal frame is added separately by buildDoorPortal.
 function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
@@ -467,7 +494,7 @@ function buildSpaceFrom(type, parent, side, uHit) {
   const s = { id: 's' + (nextId++), type, name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0, x1, z0, z1 };
   spaces.set(s.id, s); buildSpaceBase(s);
   const [olo, ohi] = [u - half, u + half];
-  parent.sides[side].push([olo, ohi]); rebuildWallSide(parent, side);
+  parent.sides[side].push([olo, ohi]); rebuildWithCorners(parent, side);
   s.sides[OPP[side]].push([olo, ohi]); s.parentSide = OPP[side];
   for (const sd of SIDES) buildWallSide(s, sd);
   const conn = { a: parent.id, side, lo: olo, hi: ohi }; conn.doorMeshes = buildConnDoors(conn);
@@ -570,7 +597,7 @@ async function deleteSpace(id, opts = {}) {
   if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }));
   for (const c of involved) { const i = connections.indexOf(c); if (i >= 0) connections.splice(i, 1); }
   disposeSpace(s); spaces.delete(id);
-  for (const r of reseal) { (r.doorMeshes || []).forEach(removeBox); const o = spaces.get(r.otherId); if (o) { const arr = o.sides[r.otherSide]; const idx = arr.findIndex(p => Math.abs(p[0] - r.lo) < 0.05 && Math.abs(p[1] - r.hi) < 0.05); if (idx >= 0) arr.splice(idx, 1); rebuildWallSide(o, r.otherSide); } }
+  for (const r of reseal) { (r.doorMeshes || []).forEach(removeBox); const o = spaces.get(r.otherId); if (o) { const arr = o.sides[r.otherSide]; const idx = arr.findIndex(p => Math.abs(p[0] - r.lo) < 0.05 && Math.abs(p[1] - r.hi) < 0.05); if (idx >= 0) arr.splice(idx, 1); rebuildWithCorners(o, r.otherSide); } }
   if (currentId() === null) { const first = spaces.values().next().value; if (first) teleport(first.id); }
   saveConfig(); buildWingEditor(); updateCount(); toast('Deleted ' + s.name);
   if (opts.undo && snap) pushUndo('delete ' + snap.s.type, () => rebuildSpace(snap));
@@ -580,7 +607,7 @@ function rebuildSpace(snap) {
   for (const c of snap.conns) { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const A = spaces.get(c.a); if (A) A.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb && spaces.get(nb)) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); spaces.get(nb).parentSide = OPP[c.side]; } }
   for (const sd of SIDES) buildWallSide(s, sd);
   const done = new Set();
-  for (const c of snap.conns) { const nbId = (c.a === s.id) ? spaceOnOtherSide(c) : c.a; const nbSide = (c.a === s.id) ? OPP[c.side] : c.side; const key = nbId + nbSide; if (spaces.get(nbId) && !done.has(key)) { rebuildWallSide(spaces.get(nbId), nbSide); done.add(key); } }
+  for (const c of snap.conns) { const nbId = (c.a === s.id) ? spaceOnOtherSide(c) : c.a; const nbSide = (c.a === s.id) ? OPP[c.side] : c.side; const key = nbId + nbSide; if (spaces.get(nbId) && !done.has(key)) { rebuildWithCorners(spaces.get(nbId), nbSide); done.add(key); } }
   for (const c of snap.conns) { const conn = connections.find(x => x.a === c.a && x.side === c.side && Math.abs(x.lo - c.lo) < 0.05); if (conn) conn.doorMeshes = buildConnDoors(conn); }
   applyTheme(s, false);
   for (const rec of snap.media) { const f = frameById.get(rec.frame); if (f) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); DB.put(rec).catch(() => {}); drawPlate(f); } }
