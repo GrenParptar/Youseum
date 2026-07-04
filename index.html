@@ -548,56 +548,133 @@ function buildSpaceFrom(type, parent, side, uHit) {
 const gifHost = document.createElement('div'); gifHost.style.cssText = 'position:fixed;left:0;bottom:0;width:8px;height:8px;overflow:hidden;pointer-events:none;z-index:-1;'; document.body.appendChild(gifHost);
 const gifAnims = []; let audibleVideo = null;
 function setAudibleVideo(f) { audibleVideo = f; for (const fr of frames) if (fr.video) fr.video.muted = (fr !== f); }
-function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.disposed = true; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); if (a.img) a.img.remove(); for (const fr of a.frames || []) fr.bmp?.close?.(); if (a.frames) a.frames.length = 0; try { a.decoder?.close?.(); } catch (e) {} a.tex?.dispose?.(); f.gif = null; }
+function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.dead = true; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); a.img?.remove(); a.frames = null; a.tex.dispose?.(); f.gif = null; }
 function applyImage(f, url) { stopGif(f); loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (f.video) { f.video.pause(); f.video = null; } f.mat.map = t; f.mat.needsUpdate = true; fitAspect(f, t.image.width / t.image.height); f.filled = true; f.srcURL = url; drawPlate(f); updateCount(); }); }
 function applyVideo(f, url) { stopGif(f); const v = document.createElement('video'); v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play().catch(() => {}); const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; f.mat.map = t; f.mat.needsUpdate = true; f.video = v; f.srcURL = url; v.addEventListener('loadedmetadata', () => fitAspect(f, (v.videoWidth || 16) / (v.videoHeight || 9))); f.filled = true; drawPlate(f); updateCount(); }
-const HAS_IMAGE_DECODER = typeof ImageDecoder !== 'undefined';
-// Build the texture once the backing canvas is at its real (final) size. GIFs are usually
-// non-power-of-two, and a CanvasTexture with default mipmaps is an "incomplete" NPOT texture
-// that samples as solid black — so disable mipmaps and use linear filtering, like VideoTexture.
-function bindGifTexture(anim) {
-  anim.tex?.dispose?.();
-  const t = new THREE.CanvasTexture(anim.cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
-  t.minFilter = THREE.LinearFilter; t.magFilter = THREE.LinearFilter; t.generateMipmaps = false;
-  anim.tex = t; anim.frame.mat.map = t; anim.frame.mat.needsUpdate = true;
-}
 function applyGif(f, url) {
   if (f.video) { f.video.pause(); f.video = null; } stopGif(f);
-  const cv = document.createElement('canvas'); cv.width = cv.height = 2; const cx = cv.getContext('2d');
-  // kind: 'decoded' = frames we advance ourselves (reliable loop), 'img' = browser-animated <img> fallback, 'static' = single frame
-  const anim = { frame: f, cv, cx, tex: null, kind: 'pending', frames: [], idx: 0, acc: 0, img: null, decoder: null, disposed: false };
-  f.gif = anim; f.srcURL = url; f.filled = true; gifAnims.push(anim);
-  if (HAS_IMAGE_DECODER) decodeGif(anim, url); else startImgGif(anim, url);
+  // Upload GIF frames as a DataTexture (raw pixels), NOT via a 2D canvas. On iOS a 2D canvas
+  // used as a WebGL texture renders black once it grows large enough to become GPU-backed, so
+  // small GIFs worked and larger ones went black. Raw-pixel upload bypasses the canvas entirely.
+  const tex = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1, THREE.RGBAFormat);
+  tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.flipY = false; tex.needsUpdate = true;
+  f.mat.map = tex; f.mat.needsUpdate = true; f.srcURL = url; f.filled = true;
+  // We decode GIF frames ourselves in JS and drive them on the render clock (the browser won't
+  // animate a hidden <img> on iOS, and WebCodecs ImageDecoder isn't in Safari).
+  const anim = { mode: 'dec', frame: f, tex, frames: [], w: 0, h: 0, idx: 0, acc: 0, lastIdx: -1 };
+  f.gif = anim; gifAnims.push(anim); decodeGif(url, anim, f);
   drawPlate(f); updateCount();
 }
-function startImgGif(anim, url) { // fallback: let the browser animate an on-screen (hidden behind the canvas) <img>
-  anim.kind = 'img'; const img = document.createElement('img'); img.style.cssText = 'position:absolute;left:0;top:0;width:8px;height:8px;'; img.src = url; gifHost.appendChild(img); anim.img = img;
-  img.onload = () => { if (anim.disposed) return; anim.cv.width = img.naturalWidth || 320; anim.cv.height = img.naturalHeight || 240; anim.cx.drawImage(img, 0, 0, anim.cv.width, anim.cv.height); bindGifTexture(anim); fitAspect(anim.frame, anim.cv.width / anim.cv.height); };
+// Advance one GIF's animation. Called per-frame by updateGifs, which only passes inView=true for
+// GIFs the camera can actually see (frustum + distance cull), so off-screen GIFs cost nothing.
+function updateGif(a, dt, inView) {
+  if (a.mode === 'dec') {
+    if (!inView || !a.frames || !a.frames.length) return;
+    a.acc += dt * 1000; let g = 0;
+    while (a.acc >= a.frames[a.idx].dur && g++ < a.frames.length) { a.acc -= a.frames[a.idx].dur; a.idx = (a.idx + 1) % a.frames.length; }
+    if (a.idx !== a.lastIdx) { a.lastIdx = a.idx; a.tex.image.data = a.frames[a.idx].data; a.tex.needsUpdate = true; }
+  } else if (a.mode === 'img') {
+    if (inView && a.img && a.img.naturalWidth) { a.cx.drawImage(a.img, 0, 0, a.cv.width, a.cv.height); a.tex.needsUpdate = true; }
+  }
 }
-async function decodeGif(anim, url) { // decode every frame up front so we can drive the animation ourselves
+// GIF rows are top-down; WebGL texture v=0 is the bottom. Flip rows so the frame renders upright
+// with flipY=false (deterministic — avoids flipY-on-DataTexture ambiguity).
+function flipGifRows(imageData, W, H) { const src = imageData.data, rb = W * 4, out = new Uint8Array(W * H * 4); for (let y = 0; y < H; y++) out.set(src.subarray((H - 1 - y) * rb, (H - y) * rb), y * rb); return out; }
+// Decode GIFs one at a time. On reload every frame builds at once, so decoding all GIFs
+// concurrently peaked iOS memory, made parseGif throw, and dropped them onto the <img>
+// fallback (black until touched). Serializing keeps peak memory to a single GIF — the same
+// condition that already works when adding one by hand.
+let gifQueue = Promise.resolve();
+function decodeGif(url, anim, f) { gifQueue = gifQueue.then(() => anim.dead ? null : decodeGifNow(url, anim, f)).catch(e => console.warn('gif decode error', e)); }
+async function decodeGifNow(url, anim, f) {
   try {
-    const buf = await (await fetch(url)).arrayBuffer(); if (anim.disposed) return;
-    const dec = new ImageDecoder({ data: buf, type: 'image/gif' }); anim.decoder = dec;
-    await dec.tracks.ready; try { await dec.completed; } catch (e) {} if (anim.disposed) { dec.close?.(); return; }
-    for (let i = 0; i < 4096; i++) { // decode until the decoder reports no more frames (frameCount isn't always reliable up front)
-      let res; try { res = await dec.decode({ frameIndex: i }); } catch (e) { break; }
-      if (anim.disposed) { res.image?.close?.(); return; }
-      const vf = res.image, dur = vf.duration ? Math.max(20, vf.duration / 1000) : 100;
-      let bmp; try { bmp = await createImageBitmap(vf); } finally { vf.close?.(); }
-      if (anim.disposed) { bmp?.close?.(); return; }
-      anim.frames.push({ bmp, duration: dur });
-      if (i === 0) { anim.cv.width = bmp.width; anim.cv.height = bmp.height; anim.cx.drawImage(bmp, 0, 0); bindGifTexture(anim); fitAspect(anim.frame, bmp.width / bmp.height); }
-    }
-    anim.kind = anim.frames.length > 1 ? 'decoded' : (anim.frames.length === 1 ? 'static' : 'fail');
-    if (anim.kind === 'fail') startImgGif(anim, url); // nothing decoded — fall back
-  } catch (e) { if (!anim.disposed) startImgGif(anim, url); }
+    const buf = await (await fetch(url)).arrayBuffer(); if (anim.dead) return;
+    const g = parseGif(buf, 512); if (!g.frames.length) throw new Error('no frames'); if (anim.dead) return;
+    // Frames are raw RGBA typed arrays (downscaled to <=512px; the crisp view is the lightbox,
+    // which uses the original blob), swapped into the DataTexture — no canvas in the upload path.
+    anim.w = g.width; anim.h = g.height; fitAspect(f, g.width / g.height);
+    anim.frames = g.frames.map(fr => ({ data: flipGifRows(fr.data, g.width, g.height), dur: fr.dur }));
+    // Create the DataTexture at its final size (resizing a placeholder texture uploads the first
+    // frame into an undersized GPU allocation and renders black). Per-frame updates keep this size.
+    const tex = new THREE.DataTexture(anim.frames[0].data, g.width, g.height, THREE.RGBAFormat);
+    tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.flipY = false; tex.needsUpdate = true;
+    anim.tex.dispose?.(); anim.tex = tex; f.mat.map = tex; f.mat.needsUpdate = true;
+    anim.idx = 0; anim.acc = 0; anim.lastIdx = 0;
+    await new Promise(r => setTimeout(r, 0)); // yield between GIFs (setTimeout, not rAF, so the queue never stalls if rAF is throttled)
+  } catch (e) { console.warn('GIF decode failed, using static fallback', e); gifImgFallback(url, anim, f); }
 }
-function updateGif(anim, dt, inView) {
-  if (!anim.tex) return;
-  if (anim.kind === 'decoded') { if (!inView || !anim.frames.length) return; anim.acc += dt * 1000; let advanced = false, guard = 0;
-    while (anim.acc >= anim.frames[anim.idx].duration && guard++ < 480) { anim.acc -= anim.frames[anim.idx].duration; anim.idx = (anim.idx + 1) % anim.frames.length; advanced = true; }
-    if (advanced) { const fr = anim.frames[anim.idx]; anim.cx.drawImage(fr.bmp, 0, 0, anim.cv.width, anim.cv.height); anim.tex.needsUpdate = true; } }
-  else if (anim.kind === 'img') { if (inView && anim.img && anim.img.naturalWidth) { anim.cx.drawImage(anim.img, 0, 0, anim.cv.width, anim.cv.height); anim.tex.needsUpdate = true; } }
+// Last-resort fallback if manual decode fails: show the GIF via an <img> drawn to a canvas
+// texture. force decode() so it paints without a repaint (iOS defers off-screen image decode).
+function gifImgFallback(url, anim, f) {
+  if (anim.dead) return;
+  const cv = document.createElement('canvas'); cv.width = 2; cv.height = 2; const cx = cv.getContext('2d');
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+  anim.tex.dispose?.(); anim.tex = tex; anim.cv = cv; anim.cx = cx; anim.mode = 'img';
+  f.mat.map = tex; f.mat.needsUpdate = true;
+  const img = document.createElement('img'); img.src = url; gifHost.appendChild(img);
+  const show = () => { if (anim.dead) return; cv.width = img.naturalWidth || 320; cv.height = img.naturalHeight || 240; fitAspect(f, cv.width / cv.height); };
+  img.decode?.().then(show).catch(() => {}); img.onload = show; anim.img = img;
+}
+// Minimal GIF87a/89a decoder → composited frames as ImageData, downscaled to maxDim, with delays.
+const _gifSrc = document.createElement('canvas'), _gifDst = document.createElement('canvas');
+function parseGif(buf, maxDim = 512) {
+  const d = new Uint8Array(buf); let p = 6; const u16 = () => (d[p++] | (d[p++] << 8));
+  if (!(d[0] === 0x47 && d[1] === 0x49 && d[2] === 0x46)) throw new Error('not a GIF'); // "GIF"
+  const W = u16(), H = u16(); const packed = d[p++]; const gctSize = 2 << (packed & 7); p += 2;
+  if (!W || !H || W * H > 60e6) throw new Error('bad GIF dimensions ' + W + 'x' + H); // guard giant allocations
+  let gct = null; if (packed & 0x80) { gct = d.subarray(p, p + gctSize * 3); p += gctSize * 3; }
+  const scale = Math.min(1, maxDim / Math.max(W, H)); const ow = Math.max(1, Math.round(W * scale)), oh = Math.max(1, Math.round(H * scale));
+  const scx = _gifSrc.getContext('2d'); const dcx = _gifDst.getContext('2d', { willReadFrequently: true });
+  _gifSrc.width = W; _gifSrc.height = H; _gifDst.width = ow; _gifDst.height = oh;
+  const frames = []; const canvas = new Uint8ClampedArray(W * H * 4); const shared = new ImageData(canvas, W, H); let gce = null, saved = null;
+  const commit = (delay) => { // snapshot current composite, downscaled, as a retained ImageData frame
+    if (scale < 1) { scx.putImageData(shared, 0, 0); dcx.drawImage(_gifSrc, 0, 0, W, H, 0, 0, ow, oh); frames.push({ data: dcx.getImageData(0, 0, ow, oh), dur: delay }); }
+    else frames.push({ data: new ImageData(canvas.slice(), W, H), dur: delay });
+  };
+  while (p < d.length) {
+    const b = d[p++];
+    if (b === 0x3B) break;
+    if (b === 0x21) {
+      const label = d[p++];
+      if (label === 0xF9) { p++; const gp = d[p++]; const delay = (d[p++] | (d[p++] << 8)) * 10; const tIndex = d[p++]; p++; gce = { disposal: (gp >> 2) & 7, transparent: gp & 1, tIndex, delay }; }
+      else { let sz; while ((sz = d[p++])) p += sz; }
+    } else if (b === 0x2C) {
+      const left = u16(), top = u16(), iw = u16(), ih = u16(); const ip = d[p++];
+      let ct = gct; if (ip & 0x80) { const s = 2 << (ip & 7); ct = d.subarray(p, p + s * 3); p += s * 3; }
+      const interlace = ip & 0x40; const minCode = d[p++];
+      let size = 0, q = p, sz; while ((sz = d[q])) { size += sz; q += sz + 1; }
+      const lzw = new Uint8Array(size); let li = 0; while ((sz = d[p++])) { for (let k = 0; k < sz; k++) lzw[li++] = d[p++]; }
+      const idx = lzwDecode(minCode, lzw, iw * ih);
+      const trans = gce && gce.transparent ? gce.tIndex : -1; const disposal = gce ? gce.disposal : 0; const delay = gce ? gce.delay : 100;
+      if (disposal === 3) saved = canvas.slice();
+      const rows = interlace ? [[0, 8], [4, 8], [2, 4], [1, 2]] : null; let src = 0;
+      const put = (x, y, i) => { if (i === trans || x >= W || y >= H) return; const o = (y * W + x) * 4, c = i * 3; canvas[o] = ct[c]; canvas[o + 1] = ct[c + 1]; canvas[o + 2] = ct[c + 2]; canvas[o + 3] = 255; };
+      if (rows) { for (const [start, step] of rows) for (let y = start; y < ih; y += step) for (let x = 0; x < iw; x++) put(left + x, top + y, idx[src++]); }
+      else { for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) put(left + x, top + y, idx[src++]); }
+      commit(delay < 20 ? 100 : delay);
+      if (disposal === 2) { for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) { const o = ((top + y) * W + (left + x)) * 4; canvas[o] = canvas[o + 1] = canvas[o + 2] = canvas[o + 3] = 0; } }
+      else if (disposal === 3 && saved) canvas.set(saved);
+      gce = null;
+    } else break;
+  }
+  return { width: ow, height: oh, frames };
+}
+function lzwDecode(minCode, data, pixelCount) {
+  const clear = 1 << minCode, eoi = clear + 1; let size = minCode + 1, dict, out = new Uint8Array(pixelCount), oi = 0, bit = 0, prev = null;
+  const total = data.length * 8;
+  const reset = () => { dict = []; for (let i = 0; i < clear; i++) dict[i] = [i]; dict[clear] = []; dict[eoi] = null; size = minCode + 1; };
+  const read = () => { let c = 0; for (let i = 0; i < size; i++) { c |= ((data[bit >> 3] >> (bit & 7)) & 1) << i; bit++; } return c; };
+  reset();
+  while (bit + size <= total) {
+    const code = read();
+    if (code === clear) { reset(); prev = null; continue; }
+    if (code === eoi) break;
+    let entry; if (code < dict.length && dict[code]) entry = dict[code]; else if (code === dict.length && prev) entry = prev.concat(prev[0]); else break;
+    for (let i = 0; i < entry.length && oi < pixelCount; i++) out[oi++] = entry[i];
+    if (prev) { dict.push(prev.concat(entry[0])); if (dict.length === (1 << size) && size < 12) size++; }
+    prev = entry; if (oi >= pixelCount) break;
+  }
+  return out;
 }
 const mediaType = (file) => file.type === 'image/gif' ? 'gif' : file.type.startsWith('video') ? 'video' : 'image';
 const applyByType = (f, type, url) => { type === 'video' ? applyVideo(f, url) : type === 'gif' ? applyGif(f, url) : applyImage(f, url); };
