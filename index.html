@@ -366,12 +366,22 @@ function wallSeg(s, side, a, b, inset, startOpen, endOpen) { // solid wall segme
   const len = b - a, margin = 0.7, usable = len - 2 * margin; if (usable < 1.3) return;
   const n = Math.max(1, Math.floor(usable / 4.2));
   const clrA = startOpen ? FRAME_JAMBCLR : FRAME_CORNERCLR, clrB = endOpen ? FRAME_JAMBCLR : FRAME_CORNERCLR;
-  for (let k = 0; k < n; k++) { const u = a + margin + usable * (k + 0.5) / n; let x, y = 1.75, z, ry;
-    const maxHalf = Math.min(u - (a + clrA), (b - clrB) - u); // shrink this frame if it'd reach past its wall end
-    if (maxHalf < 0.4) continue; // no room for even a small piece here
+  const place = (u, maxHalf, k) => { if (maxHalf < 0.4) return; let x, y = 1.75, z, ry; // no room for even a small piece here
     if (side === 'N') { x = u; z = wp + T / 2 + 0.04; ry = 0; } else if (side === 'S') { x = u; z = wp - T / 2 - 0.04; ry = Math.PI; }
     else if (side === 'E') { x = wp - T / 2 - 0.04; z = u; ry = -Math.PI / 2; } else { x = wp + T / 2 + 0.04; z = u; ry = Math.PI / 2; }
-    s.frames[side].push(addFrame(`${s.id}:${side}:${k}_${Math.round(u * 10)}`, x, y, z, ry, maxHalf)); }
+    s.frames[side].push(addFrame(`${s.id}:${side}:${k}_${Math.round(u * 10)}`, x, y, z, ry, maxHalf)); };
+  if (n === 1) {
+    // Only one picture fits on this stretch — centre it in the actual clearance-adjusted safe span
+    // between whatever bounds it (a doorway, a corner with a door on the next wall, or a plain
+    // corner) rather than the wall's raw midpoint, so it sits centred between the two openings even
+    // when they need different amounts of clearance (e.g. a wing opening on one side, a plain corner
+    // on the other).
+    const safeLo = a + clrA, safeHi = b - clrB;
+    place((safeLo + safeHi) / 2, (safeHi - safeLo) / 2, 0);
+  } else {
+    for (let k = 0; k < n; k++) { const u = a + margin + usable * (k + 0.5) / n;
+      place(u, Math.min(u - (a + clrA), (b - clrB) - u), k); }
+  }
 }
 // A wall segment that reaches this side's true lo/hi corner still isn't necessarily a plain closed
 // corner: the PERPENDICULAR wall meeting it there might itself have a doorway opening right up to
