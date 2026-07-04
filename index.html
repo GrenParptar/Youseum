@@ -358,33 +358,47 @@ function applyGif(f, url) {
   f.gif = anim; gifAnims.push(anim); decodeGif(url, anim, f);
   drawPlate(f); updateCount();
 }
-async function decodeGif(url, anim, f) {
+// Decode GIFs one at a time. On reload every frame builds at once, so decoding all GIFs
+// concurrently peaked iOS memory, made parseGif throw, and dropped them onto the <img>
+// fallback (black until touched). Serializing keeps peak memory to a single GIF — the same
+// condition that already works when adding one by hand.
+let gifQueue = Promise.resolve();
+function decodeGif(url, anim, f) { gifQueue = gifQueue.then(() => anim.dead ? null : decodeGifNow(url, anim, f)).catch(e => console.warn('gif decode error', e)); }
+async function decodeGifNow(url, anim, f) {
   try {
     const buf = await (await fetch(url)).arrayBuffer(); if (anim.dead) return;
-    const g = parseGif(buf); if (!g.frames.length) throw new Error('no frames');
-    // Store frames as CPU-side ImageData (not GPU-backed ImageBitmaps) and blit the current
-    // one via putImageData — only one texture per GIF, so many GIFs don't exhaust iOS GPU
-    // memory (which showed up as some GIFs rendering black on reload).
+    const g = parseGif(buf, 512); if (!g.frames.length) throw new Error('no frames'); if (anim.dead) return;
+    // Frames are CPU-side ImageData downscaled to <=512px (the crisp view is the lightbox,
+    // which uses the original blob), blitted via putImageData — one small texture per GIF.
     anim.cv.width = g.width; anim.cv.height = g.height; fitAspect(f, g.width / g.height);
-    anim.frames = g.frames.map(fr => ({ data: new ImageData(fr.rgba, g.width, g.height), dur: fr.delay }));
+    anim.frames = g.frames; anim.idx = 0; anim.acc = 0;
     anim.cx.putImageData(anim.frames[0].data, 0, 0); anim.tex.needsUpdate = true; anim.lastIdx = 0;
+    await new Promise(r => setTimeout(r, 0)); // yield between GIFs (setTimeout, not rAF, so the queue never stalls if rAF is throttled)
   } catch (e) { console.warn('GIF decode failed, using static fallback', e); gifImgFallback(url, anim, f); }
 }
-// Last-resort fallback if manual decode fails: show the GIF via a hidden <img> (static on iOS,
-// animated elsewhere). Reuses the same anim/render-loop slot by switching its mode.
+// Last-resort fallback if manual decode fails: show the GIF via an <img>. force decode() so it
+// paints without waiting for a repaint (iOS defers off-screen image decode).
 function gifImgFallback(url, anim, f) {
   if (anim.dead) return; const img = document.createElement('img'); img.src = url; gifHost.appendChild(img);
-  img.onload = () => { anim.cv.width = img.naturalWidth || 320; anim.cv.height = img.naturalHeight || 240; fitAspect(f, anim.cv.width / anim.cv.height); };
-  anim.mode = 'img'; anim.img = img;
+  const show = () => { if (anim.dead) return; anim.cv.width = img.naturalWidth || 320; anim.cv.height = img.naturalHeight || 240; fitAspect(f, anim.cv.width / anim.cv.height); };
+  img.decode?.().then(show).catch(() => {}); img.onload = show; anim.mode = 'img'; anim.img = img;
 }
-// Minimal GIF87a/89a decoder → array of fully-composited RGBA frames with per-frame delays.
-function parseGif(buf) {
+// Minimal GIF87a/89a decoder → composited frames as ImageData, downscaled to maxDim, with delays.
+const _gifSrc = document.createElement('canvas'), _gifDst = document.createElement('canvas');
+function parseGif(buf, maxDim = 512) {
   const d = new Uint8Array(buf); let p = 6; const u16 = () => (d[p++] | (d[p++] << 8));
   if (!(d[0] === 0x47 && d[1] === 0x49 && d[2] === 0x46)) throw new Error('not a GIF'); // "GIF"
   const W = u16(), H = u16(); const packed = d[p++]; const gctSize = 2 << (packed & 7); p += 2;
-  if (!W || !H || W * H > 30e6) throw new Error('bad GIF dimensions ' + W + 'x' + H); // guard giant allocations
+  if (!W || !H || W * H > 60e6) throw new Error('bad GIF dimensions ' + W + 'x' + H); // guard giant allocations
   let gct = null; if (packed & 0x80) { gct = d.subarray(p, p + gctSize * 3); p += gctSize * 3; }
-  const frames = []; const canvas = new Uint8ClampedArray(W * H * 4); let gce = null, saved = null;
+  const scale = Math.min(1, maxDim / Math.max(W, H)); const ow = Math.max(1, Math.round(W * scale)), oh = Math.max(1, Math.round(H * scale));
+  const scx = _gifSrc.getContext('2d'); const dcx = _gifDst.getContext('2d', { willReadFrequently: true });
+  _gifSrc.width = W; _gifSrc.height = H; _gifDst.width = ow; _gifDst.height = oh;
+  const frames = []; const canvas = new Uint8ClampedArray(W * H * 4); const shared = new ImageData(canvas, W, H); let gce = null, saved = null;
+  const commit = (delay) => { // snapshot current composite, downscaled, as a retained ImageData frame
+    if (scale < 1) { scx.putImageData(shared, 0, 0); dcx.drawImage(_gifSrc, 0, 0, W, H, 0, 0, ow, oh); frames.push({ data: dcx.getImageData(0, 0, ow, oh), dur: delay }); }
+    else frames.push({ data: new ImageData(canvas.slice(), W, H), dur: delay });
+  };
   while (p < d.length) {
     const b = d[p++];
     if (b === 0x3B) break;
@@ -405,13 +419,13 @@ function parseGif(buf) {
       const put = (x, y, i) => { if (i === trans || x >= W || y >= H) return; const o = (y * W + x) * 4, c = i * 3; canvas[o] = ct[c]; canvas[o + 1] = ct[c + 1]; canvas[o + 2] = ct[c + 2]; canvas[o + 3] = 255; };
       if (rows) { for (const [start, step] of rows) for (let y = start; y < ih; y += step) for (let x = 0; x < iw; x++) put(left + x, top + y, idx[src++]); }
       else { for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) put(left + x, top + y, idx[src++]); }
-      frames.push({ rgba: new Uint8ClampedArray(canvas), delay: delay < 20 ? 100 : delay });
+      commit(delay < 20 ? 100 : delay);
       if (disposal === 2) { for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) { const o = ((top + y) * W + (left + x)) * 4; canvas[o] = canvas[o + 1] = canvas[o + 2] = canvas[o + 3] = 0; } }
       else if (disposal === 3 && saved) canvas.set(saved);
       gce = null;
     } else break;
   }
-  return { width: W, height: H, frames };
+  return { width: ow, height: oh, frames };
 }
 function lzwDecode(minCode, data, pixelCount) {
   const clear = 1 << minCode, eoi = clear + 1; let size = minCode + 1, dict, out = new Uint8Array(pixelCount), oi = 0, bit = 0, prev = null;
