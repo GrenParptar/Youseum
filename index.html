@@ -343,10 +343,42 @@ function buildSpaceFrom(type, parent, side, uHit) {
 const gifHost = document.createElement('div'); gifHost.style.cssText = 'position:fixed;left:-10000px;top:0;opacity:0;pointer-events:none;'; document.body.appendChild(gifHost);
 const gifAnims = []; let audibleVideo = null;
 function setAudibleVideo(f) { audibleVideo = f; for (const fr of frames) if (fr.video) fr.video.muted = (fr !== f); }
-function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); a.img.remove(); a.tex.dispose?.(); f.gif = null; }
+function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.dead = true; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); a.img?.remove(); if (a.frames) for (const fr of a.frames) fr.bmp.close?.(); a.tex.dispose?.(); f.gif = null; }
 function applyImage(f, url) { stopGif(f); loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (f.video) { f.video.pause(); f.video = null; } f.mat.map = t; f.mat.needsUpdate = true; fitAspect(f, t.image.width / t.image.height); f.filled = true; f.srcURL = url; drawPlate(f); updateCount(); }); }
 function applyVideo(f, url) { stopGif(f); const v = document.createElement('video'); v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play().catch(() => {}); const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; f.mat.map = t; f.mat.needsUpdate = true; f.video = v; f.srcURL = url; v.addEventListener('loadedmetadata', () => fitAspect(f, (v.videoWidth || 16) / (v.videoHeight || 9))); f.filled = true; drawPlate(f); updateCount(); }
-function applyGif(f, url) { if (f.video) { f.video.pause(); f.video = null; } stopGif(f); const img = document.createElement('img'); img.src = url; gifHost.appendChild(img); const cv = document.createElement('canvas'); cv.width = 2; cv.height = 2; const cx = cv.getContext('2d'); const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; const anim = { img, cv, cx, tex }; img.onload = () => { cv.width = img.naturalWidth || 320; cv.height = img.naturalHeight || 240; fitAspect(f, cv.width / cv.height); }; f.mat.map = tex; f.mat.needsUpdate = true; f.gif = anim; f.srcURL = url; f.filled = true; gifAnims.push(anim); drawPlate(f); updateCount(); }
+function applyGif(f, url) {
+  if (f.video) { f.video.pause(); f.video = null; } stopGif(f);
+  const cv = document.createElement('canvas'); cv.width = 2; cv.height = 2; const cx = cv.getContext('2d');
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  f.mat.map = tex; f.mat.needsUpdate = true; f.srcURL = url; f.filled = true;
+  if (window.ImageDecoder) {
+    // Decode frames ourselves and drive them on our own clock — iOS Safari does not
+    // advance an off-screen/opacity:0 <img>'s GIF animation, so the copy-to-canvas trick stalls.
+    const anim = { mode: 'dec', cv, cx, tex, frames: [], idx: 0, acc: 0, lastIdx: -1 };
+    f.gif = anim; gifAnims.push(anim); decodeGif(url, anim, f);
+  } else {
+    const img = document.createElement('img'); img.src = url; gifHost.appendChild(img);
+    const anim = { mode: 'img', img, cv, cx, tex };
+    img.onload = () => { cv.width = img.naturalWidth || 320; cv.height = img.naturalHeight || 240; fitAspect(f, cv.width / cv.height); };
+    f.gif = anim; gifAnims.push(anim);
+  }
+  drawPlate(f); updateCount();
+}
+async function decodeGif(url, anim, f) {
+  try {
+    const buf = await (await fetch(url)).arrayBuffer(); if (anim.dead) return;
+    const dec = new ImageDecoder({ data: buf, type: 'image/gif' });
+    await dec.tracks.ready; if (anim.dead) return;
+    const track = dec.tracks.selectedTrack; const n = track?.frameCount || 1;
+    for (let i = 0; i < n; i++) {
+      const { image } = await dec.decode({ frameIndex: i }); if (anim.dead) { image.close(); return; }
+      const dur = (image.duration || 1e5) / 1000; const bmp = await createImageBitmap(image); image.close();
+      if (anim.dead) { bmp.close(); return; }
+      anim.frames.push({ bmp, dur: dur < 20 ? 100 : dur });
+      if (i === 0) { anim.cv.width = bmp.width; anim.cv.height = bmp.height; fitAspect(f, bmp.width / bmp.height); }
+    }
+  } catch (e) { console.warn('GIF decode failed', e); }
+}
 const mediaType = (file) => file.type === 'image/gif' ? 'gif' : file.type.startsWith('video') ? 'video' : 'image';
 const applyByType = (f, type, url) => { type === 'video' ? applyVideo(f, url) : type === 'gif' ? applyGif(f, url) : applyImage(f, url); };
 async function assignFile(f, file, record = true) {
@@ -590,7 +622,10 @@ function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.g
   if (inTour && !paused && !lightboxOpen) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight']) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
     camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); } }
   if (++mapTick % 3 === 0 && (inTour || paused)) drawMap();
-  for (const a of gifAnims) { if (a.img.naturalWidth) { a.cx.drawImage(a.img, 0, 0, a.cv.width, a.cv.height); a.tex.needsUpdate = true; } }
+  for (const a of gifAnims) {
+    if (a.mode === 'dec') { if (!a.frames.length) continue; a.acc += dt * 1000; let g = 0; while (a.acc >= a.frames[a.idx].dur && g++ < a.frames.length) { a.acc -= a.frames[a.idx].dur; a.idx = (a.idx + 1) % a.frames.length; } if (a.idx !== a.lastIdx) { a.lastIdx = a.idx; a.cx.drawImage(a.frames[a.idx].bmp, 0, 0, a.cv.width, a.cv.height); a.tex.needsUpdate = true; } }
+    else if (a.img.naturalWidth) { a.cx.drawImage(a.img, 0, 0, a.cv.width, a.cv.height); a.tex.needsUpdate = true; }
+  }
   (composer || renderer).render(scene, camera);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer?.setSize(innerWidth, innerHeight); });
