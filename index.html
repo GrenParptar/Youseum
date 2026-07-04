@@ -342,6 +342,9 @@ function buildSpaceFrom(type, parent, side, uHit) {
 /* ===== media ===== */
 const gifHost = document.createElement('div'); gifHost.style.cssText = 'position:fixed;left:-10000px;top:0;opacity:0;pointer-events:none;'; document.body.appendChild(gifHost);
 const gifAnims = []; let audibleVideo = null;
+/* ---- TEMP GIF DIAGNOSTIC OVERLAY ---- */
+const gifDbg = document.createElement('div'); gifDbg.style.cssText = 'position:fixed;left:4px;top:4px;z-index:99999;font:11px monospace;color:#3f6;background:rgba(0,0,0,.78);padding:5px 7px;max-width:78vw;white-space:pre-wrap;pointer-events:none;border-radius:4px;'; document.body.appendChild(gifDbg);
+const _gdLines = []; function gdbg(s) { _gdLines.push(s); if (_gdLines.length > 14) _gdLines.shift(); gifDbg.textContent = 'GIF DIAG\n' + _gdLines.join('\n'); }
 function setAudibleVideo(f) { audibleVideo = f; for (const fr of frames) if (fr.video) fr.video.muted = (fr !== f); }
 function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.dead = true; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); a.img?.remove(); a.frames = null; a.tex.dispose?.(); f.gif = null; }
 function applyImage(f, url) { stopGif(f); loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (f.video) { f.video.pause(); f.video = null; } f.mat.map = t; f.mat.needsUpdate = true; fitAspect(f, t.image.width / t.image.height); f.filled = true; f.srcURL = url; drawPlate(f); updateCount(); }); }
@@ -367,7 +370,9 @@ function applyGif(f, url) {
 let gifQueue = Promise.resolve();
 function decodeGif(url, anim, f) { gifQueue = gifQueue.then(() => anim.dead ? null : decodeGifNow(url, anim, f)).catch(e => console.warn('gif decode error', e)); }
 async function decodeGifNow(url, anim, f) {
+  const tag = f.id.slice(-9);
   try {
+    gdbg('start ' + tag); const t0 = performance.now();
     const buf = await (await fetch(url)).arrayBuffer(); if (anim.dead) return;
     const g = parseGif(buf, 512); if (!g.frames.length) throw new Error('no frames'); if (anim.dead) return;
     // Frames are CPU-side ImageData downscaled to <=512px (the crisp view is the lightbox,
@@ -375,8 +380,9 @@ async function decodeGifNow(url, anim, f) {
     anim.cv.width = g.width; anim.cv.height = g.height; fitAspect(f, g.width / g.height);
     anim.frames = g.frames; anim.idx = 0; anim.acc = 0;
     anim.cx.putImageData(anim.frames[0].data, 0, 0); anim.tex.needsUpdate = true; anim.lastIdx = 0;
+    gdbg('OK ' + tag + ' ' + g.width + 'x' + g.height + ' ' + g.frames.length + 'f ' + Math.round(performance.now() - t0) + 'ms');
     await new Promise(r => setTimeout(r, 0)); // yield between GIFs (setTimeout, not rAF, so the queue never stalls if rAF is throttled)
-  } catch (e) { console.warn('GIF decode failed, using static fallback', e); gifImgFallback(url, anim, f); }
+  } catch (e) { gdbg('ERR ' + tag + ' ' + (e && e.message || e)); console.warn('GIF decode failed, using static fallback', e); gifImgFallback(url, anim, f); }
 }
 // Last-resort fallback if manual decode fails: show the GIF via an <img>. force decode() so it
 // paints without waiting for a repaint (iOS defers off-screen image decode).
