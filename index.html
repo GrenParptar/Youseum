@@ -351,33 +351,83 @@ function applyGif(f, url) {
   const cv = document.createElement('canvas'); cv.width = 2; cv.height = 2; const cx = cv.getContext('2d');
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
   f.mat.map = tex; f.mat.needsUpdate = true; f.srcURL = url; f.filled = true;
-  if (window.ImageDecoder) {
-    // Decode frames ourselves and drive them on our own clock — iOS Safari does not
-    // advance an off-screen/opacity:0 <img>'s GIF animation, so the copy-to-canvas trick stalls.
-    const anim = { mode: 'dec', cv, cx, tex, frames: [], idx: 0, acc: 0, lastIdx: -1 };
-    f.gif = anim; gifAnims.push(anim); decodeGif(url, anim, f);
-  } else {
-    const img = document.createElement('img'); img.src = url; gifHost.appendChild(img);
-    const anim = { mode: 'img', img, cv, cx, tex };
-    img.onload = () => { cv.width = img.naturalWidth || 320; cv.height = img.naturalHeight || 240; fitAspect(f, cv.width / cv.height); };
-    f.gif = anim; gifAnims.push(anim);
-  }
+  // Decode GIF frames ourselves in JS and drive them on the render clock. Relying on the
+  // browser to animate a hidden <img> fails on iOS Safari (it won't advance an off-screen/
+  // opacity:0 GIF), and WebCodecs ImageDecoder isn't available in Safari — so decode manually.
+  const anim = { mode: 'dec', cv, cx, tex, frames: [], idx: 0, acc: 0, lastIdx: -1 };
+  f.gif = anim; gifAnims.push(anim); decodeGif(url, anim, f);
   drawPlate(f); updateCount();
 }
 async function decodeGif(url, anim, f) {
   try {
     const buf = await (await fetch(url)).arrayBuffer(); if (anim.dead) return;
-    const dec = new ImageDecoder({ data: buf, type: 'image/gif' });
-    await dec.tracks.ready; if (anim.dead) return;
-    const track = dec.tracks.selectedTrack; const n = track?.frameCount || 1;
-    for (let i = 0; i < n; i++) {
-      const { image } = await dec.decode({ frameIndex: i }); if (anim.dead) { image.close(); return; }
-      const dur = (image.duration || 1e5) / 1000; const bmp = await createImageBitmap(image); image.close();
+    const g = parseGif(buf); if (!g.frames.length) throw new Error('no frames');
+    for (let i = 0; i < g.frames.length; i++) {
+      if (anim.dead) return;
+      const fr = g.frames[i]; const bmp = await createImageBitmap(new ImageData(fr.rgba, g.width, g.height));
       if (anim.dead) { bmp.close(); return; }
-      anim.frames.push({ bmp, dur: dur < 20 ? 100 : dur });
-      if (i === 0) { anim.cv.width = bmp.width; anim.cv.height = bmp.height; fitAspect(f, bmp.width / bmp.height); }
+      anim.frames.push({ bmp, dur: fr.delay });
+      if (i === 0) { anim.cv.width = g.width; anim.cv.height = g.height; fitAspect(f, g.width / g.height); }
     }
-  } catch (e) { console.warn('GIF decode failed', e); }
+  } catch (e) { console.warn('GIF decode failed, using static fallback', e); gifImgFallback(url, anim, f); }
+}
+// Last-resort fallback if manual decode fails: show the GIF via a hidden <img> (static on iOS,
+// animated elsewhere). Reuses the same anim/render-loop slot by switching its mode.
+function gifImgFallback(url, anim, f) {
+  if (anim.dead) return; const img = document.createElement('img'); img.src = url; gifHost.appendChild(img);
+  img.onload = () => { anim.cv.width = img.naturalWidth || 320; anim.cv.height = img.naturalHeight || 240; fitAspect(f, anim.cv.width / anim.cv.height); };
+  anim.mode = 'img'; anim.img = img;
+}
+// Minimal GIF87a/89a decoder → array of fully-composited RGBA frames with per-frame delays.
+function parseGif(buf) {
+  const d = new Uint8Array(buf); let p = 6; const u16 = () => (d[p++] | (d[p++] << 8));
+  const W = u16(), H = u16(); const packed = d[p++]; const gctSize = 2 << (packed & 7); p += 2;
+  let gct = null; if (packed & 0x80) { gct = d.subarray(p, p + gctSize * 3); p += gctSize * 3; }
+  const frames = []; const canvas = new Uint8ClampedArray(W * H * 4); let gce = null, saved = null;
+  while (p < d.length) {
+    const b = d[p++];
+    if (b === 0x3B) break;
+    if (b === 0x21) {
+      const label = d[p++];
+      if (label === 0xF9) { p++; const gp = d[p++]; const delay = (d[p++] | (d[p++] << 8)) * 10; const tIndex = d[p++]; p++; gce = { disposal: (gp >> 2) & 7, transparent: gp & 1, tIndex, delay }; }
+      else { let sz; while ((sz = d[p++])) p += sz; }
+    } else if (b === 0x2C) {
+      const left = u16(), top = u16(), iw = u16(), ih = u16(); const ip = d[p++];
+      let ct = gct; if (ip & 0x80) { const s = 2 << (ip & 7); ct = d.subarray(p, p + s * 3); p += s * 3; }
+      const interlace = ip & 0x40; const minCode = d[p++];
+      let size = 0, q = p, sz; while ((sz = d[q])) { size += sz; q += sz + 1; }
+      const lzw = new Uint8Array(size); let li = 0; while ((sz = d[p++])) { for (let k = 0; k < sz; k++) lzw[li++] = d[p++]; }
+      const idx = lzwDecode(minCode, lzw, iw * ih);
+      const trans = gce && gce.transparent ? gce.tIndex : -1; const disposal = gce ? gce.disposal : 0; const delay = gce ? gce.delay : 100;
+      if (disposal === 3) saved = canvas.slice();
+      const rows = interlace ? [[0, 8], [4, 8], [2, 4], [1, 2]] : null; let src = 0;
+      const put = (x, y, i) => { if (i === trans || x >= W || y >= H) return; const o = (y * W + x) * 4, c = i * 3; canvas[o] = ct[c]; canvas[o + 1] = ct[c + 1]; canvas[o + 2] = ct[c + 2]; canvas[o + 3] = 255; };
+      if (rows) { for (const [start, step] of rows) for (let y = start; y < ih; y += step) for (let x = 0; x < iw; x++) put(left + x, top + y, idx[src++]); }
+      else { for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) put(left + x, top + y, idx[src++]); }
+      frames.push({ rgba: new Uint8ClampedArray(canvas), delay: delay < 20 ? 100 : delay });
+      if (disposal === 2) { for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) { const o = ((top + y) * W + (left + x)) * 4; canvas[o] = canvas[o + 1] = canvas[o + 2] = canvas[o + 3] = 0; } }
+      else if (disposal === 3 && saved) canvas.set(saved);
+      gce = null;
+    } else break;
+  }
+  return { width: W, height: H, frames };
+}
+function lzwDecode(minCode, data, pixelCount) {
+  const clear = 1 << minCode, eoi = clear + 1; let size = minCode + 1, dict, out = new Uint8Array(pixelCount), oi = 0, bit = 0, prev = null;
+  const total = data.length * 8;
+  const reset = () => { dict = []; for (let i = 0; i < clear; i++) dict[i] = [i]; dict[clear] = []; dict[eoi] = null; size = minCode + 1; };
+  const read = () => { let c = 0; for (let i = 0; i < size; i++) { c |= ((data[bit >> 3] >> (bit & 7)) & 1) << i; bit++; } return c; };
+  reset();
+  while (bit + size <= total) {
+    const code = read();
+    if (code === clear) { reset(); prev = null; continue; }
+    if (code === eoi) break;
+    let entry; if (code < dict.length && dict[code]) entry = dict[code]; else if (code === dict.length && prev) entry = prev.concat(prev[0]); else break;
+    for (let i = 0; i < entry.length && oi < pixelCount; i++) out[oi++] = entry[i];
+    if (prev) { dict.push(prev.concat(entry[0])); if (dict.length === (1 << size) && size < 12) size++; }
+    prev = entry; if (oi >= pixelCount) break;
+  }
+  return out;
 }
 const mediaType = (file) => file.type === 'image/gif' ? 'gif' : file.type.startsWith('video') ? 'video' : 'image';
 const applyByType = (f, type, url) => { type === 'video' ? applyVideo(f, url) : type === 'gif' ? applyGif(f, url) : applyImage(f, url); };
