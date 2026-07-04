@@ -349,7 +349,9 @@ function applyVideo(f, url) { stopGif(f); const v = document.createElement('vide
 function applyGif(f, url) {
   if (f.video) { f.video.pause(); f.video = null; } stopGif(f);
   const cv = document.createElement('canvas'); cv.width = 2; cv.height = 2; const cx = cv.getContext('2d');
-  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  // Match VideoTexture's settings: no mipmaps + linear filtering. GIF frames are non-power-of-two
+  // and update every frame; mipmapped/anisotropic NPOT textures render black on iOS WebGL.
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
   f.mat.map = tex; f.mat.needsUpdate = true; f.srcURL = url; f.filled = true;
   // Decode GIF frames ourselves in JS and drive them on the render clock. Relying on the
   // browser to animate a hidden <img> fails on iOS Safari (it won't advance an off-screen/
