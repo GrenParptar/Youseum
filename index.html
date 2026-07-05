@@ -316,7 +316,7 @@ function sizeFrame(f, w, h) { f.natW = w; f.natH = h; let s = Math.min(2.8 / w, 
   if (isFinite(f.maxHalf)) { const capArt = 2 * f.maxHalf - 0.32; if (capArt > 0.2 && w * s > capArt) s = capArt / w; }
   w *= s; h *= s; f.art.scale.set(w, h, 1); f.matte.scale.set(w + 0.14, h + 0.14, 1); f.border.scale.set(w + 0.32, h + 0.32, 1); f.shadow.scale.set(w + 0.32, h + 0.32, 1); f.lightbar.position.set(0, h / 2 + 0.28, 0.16); f.lightbar.scale.x = w * 0.7; f.plateMesh.position.y = -(h / 2 + 0.30); f.plateMesh.scale.x = Math.min(Math.max(w * 0.65, 0.5), 1.4); }
 function fitAspect(f, a) { let h = 1.4, w = h * a; if (w > 2.8) { w = 2.8; h = w / a; } if (h > 2.0) { h = 2.0; w = h * a; } sizeFrame(f, w, h); }
-function removeFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; } if (audibleVideo === f) audibleVideo = null; scene.remove(f.group); const i = frames.indexOf(f); if (i >= 0) frames.splice(i, 1); frameById.delete(f.id); DB.del(f.id); }
+function removeFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; } if (audibleVideo === f) audibleVideo = null; scene.remove(f.group); const i = frames.indexOf(f); if (i >= 0) frames.splice(i, 1); frameById.delete(f.id); if (!resizingDB) DB.del(f.id); }
 
 /* ===== spaces, walls, doorways ===== */
 const wallMeshes = [];
@@ -550,9 +550,21 @@ function buildSpaceFrom(type, parent, side, uHit) {
 async function snapshotSideMedia(s) {
   const snap = {};
   for (const sd of SIDES) { snap[sd] = [];
-    for (const f of s.frames[sd]) { if (f.filled) { const rec = await DB.get(f.id); snap[sd].push(rec ? { type: rec.type, blob: rec.blob, title: rec.title || f.title || '' } : null); } else snap[sd].push(null); } }
+    for (const f of s.frames[sd]) {
+      if (!f.filled) { snap[sd].push(null); continue; }
+      const rec = await DB.get(f.id);
+      if (rec && rec.blob) { snap[sd].push({ type: rec.type, blob: rec.blob, title: rec.title || f.title || '' }); continue; }
+      // Media shown this session but never persisted (e.g. storage was full at add time): recover the
+      // bytes straight from the frame's live object URL so a resize still carries it along.
+      if (f.srcURL) { try { const blob = await (await fetch(f.srcURL)).blob(); snap[sd].push({ type: f.video ? 'video' : f.gif ? 'gif' : 'image', blob, title: f.title || '' }); continue; } catch (e) {} }
+      snap[sd].push(null);
+    } }
   return snap;
 }
+// Guard so the wholesale frame teardown inside a resize does NOT fire removeFrame's own
+// (un-awaited) DB.del — those races the re-writes below and can wipe a frame's saved media. During a
+// resize we reconcile the DB deterministically instead (delete only truly-orphaned ids, then put).
+let resizingDB = false;
 // Resize a space to new bounds in place, rebuilding its floor/ceiling/lights/walls/frames while
 // preserving its openings (doorways to neighbours stay put — neighbours don't move) and re-hanging
 // its media onto the relaid frames. Existing pictures stay anchored to whichever end of each wall
@@ -562,13 +574,18 @@ async function snapshotSideMedia(s) {
 async function resizeSpace(s, nb) {
   const snap = await snapshotSideMedia(s);
   const oldB = { x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 };
+  const oldIds = new Set(); for (const sd of SIDES) for (const f of s.frames[sd]) oldIds.add(f.id);
   const savedSides = {}; for (const sd of SIDES) savedSides[sd] = (s.sides[sd] || []).map(p => p.slice());
   const savedParent = s.parentSide;
-  disposeSpace(s);                                   // removes base meshes + walls + frames (and their DB records)
+  resizingDB = true;                                 // suppress removeFrame's fire-and-forget DB.del
+  disposeSpace(s);                                   // removes base meshes + walls + frames (meshes only)
   s.x0 = nb.x0; s.x1 = nb.x1; s.z0 = nb.z0; s.z1 = nb.z1;
   buildSpaceBase(s);                                 // recreates base; resets s.sides / s.walls / s.frames
   for (const sd of SIDES) s.sides[sd] = savedSides[sd]; s.parentSide = savedParent;
   for (const sd of SIDES) buildWallSide(s, sd);
+  resizingDB = false;
+  // Re-hang media onto the relaid frames (in memory), collecting what to persist.
+  const puts = []; const keep = new Set();
   for (const sd of SIDES) { const items = snap[sd], fr = s.frames[sd]; const axisX = (sd === 'N' || sd === 'S');
     // Frames are ordered by increasing u (x for N/S, z for E/W). If the wall's LOW-u boundary is the
     // one that moved, keep media anchored to the (fixed) HIGH-u end — shift by the frame-count delta
@@ -577,9 +594,12 @@ async function resizeSpace(s, nb) {
     const highMoved = axisX ? (nb.x1 !== oldB.x1) : (nb.z1 !== oldB.z1);
     const offset = (lowMoved && !highMoved) ? (fr.length - items.length) : 0;
     for (let i = 0; i < items.length; i++) { const it = items[i]; if (!it) continue; const j = i + offset; if (j < 0 || j >= fr.length) continue; const f = fr[j];
-      f.title = it.title || ''; applyByType(f, it.type, URL.createObjectURL(it.blob));
-      try { await DB.put({ frame: f.id, type: it.type, blob: it.blob, title: f.title }); } catch {}
-      drawPlate(f); } }
+      f.title = it.title || ''; applyByType(f, it.type, URL.createObjectURL(it.blob)); drawPlate(f);
+      keep.add(f.id); puts.push({ frame: f.id, type: it.type, blob: it.blob, title: f.title }); } }
+  // Deterministic DB reconciliation, fully awaited: drop only ids that are no longer used, then write
+  // the current media. No fire-and-forget deletes, so nothing races these writes.
+  for (const id of oldIds) if (!keep.has(id)) { try { await DB.del(id); } catch (e) {} }
+  for (const rec of puts) { try { await DB.put(rec); } catch (e) { toast('Storage full — some media is shown this session only'); } }
   applyTheme(s, false); applyFrameClamps(); saveConfig(); buildWingEditor(); updateCount();
 }
 // "Extend room": push the faced wall outward by one picture's worth of depth so each perpendicular
