@@ -62,8 +62,6 @@
   #joy { position: absolute; left: 30px; bottom: 30px; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.18); }
   #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255,255,255,.5); border: 2px solid rgba(255,255,255,.7); }
   #useBtn { position: absolute; right: 34px; bottom: 64px; width: 84px; height: 84px; border-radius: 50%; border: 2px solid rgba(255,210,122,.8); background: rgba(255,210,122,.18); color: #ffe6b0; font: 700 16px inherit; letter-spacing: 1px; } #useBtn:active { background: rgba(255,210,122,.4); }
-  #wingBtn { position: absolute; right: 40px; bottom: 158px; width: 72px; height: 56px; border-radius: 14px; border: 2px solid rgba(180,210,255,.7); background: rgba(120,150,255,.18); color: #cfe0ff; font: 700 13px inherit; display: none; } body.tour.touch #wingBtn { display: block; } #wingBtn:active { background: rgba(120,150,255,.4); }
-  #headBtn { position: absolute; right: 40px; bottom: 226px; width: 72px; height: 50px; border-radius: 14px; border: 2px solid rgba(255,210,122,.7); background: rgba(255,210,122,.16); color: #ffe6b0; font: 700 12px inherit; display: none; } body.tour.touch.lookwall #headBtn { display: block; } #headBtn:active { background: rgba(255,210,122,.4); }
   #toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%) translateY(20px); background: rgba(20,20,26,.96); border: 1px solid rgba(255,255,255,.12); color: #f0f0f4; padding: 11px 18px; border-radius: 10px; font-size: 14px; z-index: 32; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: 80vw; text-align: center; } #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   #drop { position: fixed; inset: 0; z-index: 18; pointer-events: none; display: grid; place-items: center; background: rgba(255,210,122,.10); border: 3px dashed rgba(255,210,122,.7); opacity: 0; transition: opacity .15s; } #drop.show { opacity: 1; } #drop span { background: rgba(12,12,16,.9); color: #ffd27a; padding: 14px 22px; border-radius: 12px; font-size: 16px; font-weight: 600; }
   /* Lightbox — closer view of a piece */
@@ -127,7 +125,7 @@
       <div class="lbl">Rooms &amp; halls — name, theme &amp; music</div>
       <div class="musicrow" style="margin-bottom:2px"><label class="switch"><input type="checkbox" id="sectionTitlesOn" checked><span></span></label><span>Show wall headings (large titles)</span></div>
       <div id="wings"></div>
-      <div class="lbl" style="margin-top:2px;color:#6a6a76">Build more by facing a wall: <b style="color:#9a9aa6">left-click for a hall, right-click for a wing</b> (touch: USE / WING). Face a wall and press <b style="color:#9a9aa6">T</b> to add or edit its heading, <b style="color:#9a9aa6">⌫</b> to remove it.</div>
+      <div class="lbl" style="margin-top:2px;color:#6a6a76">Build more by facing a wall: <b style="color:#9a9aa6">left-click for a hall, right-click for a wing</b> (touch: tap USE for wall options — hall, wing, extend, heading). On desktop, press <b style="color:#9a9aa6">T</b> to add or edit a wall heading, <b style="color:#9a9aa6">⌫</b> to remove it.</div>
     </div>
     <div class="grp">
       <div class="lbl">Your gallery</div>
@@ -147,7 +145,7 @@
     <div class="grp"><button class="item" data-act="exit">⤿ Exit to start screen</button></div>
   </div>
   <div id="overview"><div class="ohead"><h2>All <span class="accent">rooms</span></h2><button class="oclose" id="ovClose">Close ✕</button></div><div id="ogrid"></div></div>
-  <div id="touch"><div id="joy"><div id="knob"></div></div><button id="useBtn">USE</button><button id="wingBtn">＋ WING</button><button id="headBtn">＋ TITLE</button></div>
+  <div id="touch"><div id="joy"><div id="knob"></div></div><button id="useBtn">USE</button></div>
   <div id="drop"><span>Drop photos &amp; videos to hang them</span></div>
   <div id="overlay">
     <div class="card">
@@ -161,7 +159,7 @@
       </div>
       <div class="controls touchonly" style="grid-template-columns:1fr">
         <div class="row">🕹️ Left thumb to move · drag right side to look</div>
-        <div class="row">Tap <b style="color:#ffd27a">&nbsp;USE&nbsp;</b> to fill a frame or build a hall · <b style="color:#cfe0ff">＋WING</b> for a room</div>
+        <div class="row">Tap <b style="color:#ffd27a">&nbsp;USE&nbsp;</b> to fill a frame, or face a wall for options (hall, wing, extend, title)</div>
         <div class="row">☰ Menu for media, rooms, music &amp; saving</div>
       </div>
       <button id="start" class="btn primary">Enter the museum</button>
@@ -254,6 +252,10 @@ const floorMatFor = (k) => FLOOR_MAT[k] || FLOOR_MAT.wood;
 // one hall segment's side wall, and wings on two adjacent hall segments don't clip into each other.
 const RW = 18, RD = 14, HALLW = 4.8, HALLLEN = 20, H = 5, DOORW = 3.2, DOORH = 3.0, T = 0.4;
 const HEADH = 0.28; // height of the black lintel band above a doorway; the room-colored wall starts above it
+// How far "Extend room" pushes a wall outward. Matches wallSeg's ~4.2 picture spacing, so each
+// extension grows the two perpendicular walls by exactly one more frame slot apiece (floor((L-1.4)/4.2)
+// gains exactly 1 when L grows by 4.2).
+const EXTEND_STEP = 4.2;
 // Preset themes: quick-apply bundles of wall color, floor, roughness, metalness, lighting
 const PRESETS = [
   { id: 'classic',  name: 'Classic Hall', wall: 0xd8cdb6, floor: 'wood',     rough: .8,  metal: 0,  light: 0xffe6c0, li: 46, accent: 0xffcf95 },
@@ -314,7 +316,7 @@ function sizeFrame(f, w, h) { f.natW = w; f.natH = h; let s = Math.min(2.8 / w, 
   if (isFinite(f.maxHalf)) { const capArt = 2 * f.maxHalf - 0.32; if (capArt > 0.2 && w * s > capArt) s = capArt / w; }
   w *= s; h *= s; f.art.scale.set(w, h, 1); f.matte.scale.set(w + 0.14, h + 0.14, 1); f.border.scale.set(w + 0.32, h + 0.32, 1); f.shadow.scale.set(w + 0.32, h + 0.32, 1); f.lightbar.position.set(0, h / 2 + 0.28, 0.16); f.lightbar.scale.x = w * 0.7; f.plateMesh.position.y = -(h / 2 + 0.30); f.plateMesh.scale.x = Math.min(Math.max(w * 0.65, 0.5), 1.4); }
 function fitAspect(f, a) { let h = 1.4, w = h * a; if (w > 2.8) { w = 2.8; h = w / a; } if (h > 2.0) { h = 2.0; w = h * a; } sizeFrame(f, w, h); }
-function removeFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; } if (audibleVideo === f) audibleVideo = null; scene.remove(f.group); const i = frames.indexOf(f); if (i >= 0) frames.splice(i, 1); frameById.delete(f.id); DB.del(f.id); }
+function removeFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; } if (audibleVideo === f) audibleVideo = null; scene.remove(f.group); const i = frames.indexOf(f); if (i >= 0) frames.splice(i, 1); frameById.delete(f.id); if (!resizingDB) DB.del(f.id); }
 
 /* ===== spaces, walls, doorways ===== */
 const wallMeshes = [];
@@ -510,6 +512,7 @@ function applyTheme(s, save = true) {
   if (save) saveConfig();
 }
 function overlaps(x0, x1, z0, z1) { const e = 0.4; for (const s of spaces.values()) if (x0 < s.x1 - e && x1 > s.x0 + e && z0 < s.z1 - e && z1 > s.z0 + e) return true; return false; }
+function overlapsExcept(x0, x1, z0, z1, exceptId) { const e = 0.4; for (const s of spaces.values()) { if (s.id === exceptId) continue; if (x0 < s.x1 - e && x1 > s.x0 + e && z0 < s.z1 - e && z1 > s.z0 + e) return true; } return false; }
 
 function buildSpaceFrom(type, parent, side, uHit) {
   const isX = (side === 'N' || side === 'S'); const W = type === 'hall' ? HALLW : RW, L = type === 'hall' ? HALLLEN : RD; const half = type === 'hall' ? HALLW / 2 : DOORW / 2;
@@ -541,6 +544,100 @@ function buildSpaceFrom(type, parent, side, uHit) {
   pushUndo('build ' + type, () => deleteSpace(s.id, { undo: false }));
 }
 
+// Capture the media hung on each side, in wall order, before a resize wipes/relays the frames.
+// Returns per-side arrays of { type, blob, title } (or null for an empty slot) so they can be
+// re-hung onto the rebuilt frames in the same order afterwards.
+async function snapshotSideMedia(s) {
+  const snap = {};
+  for (const sd of SIDES) { snap[sd] = [];
+    for (const f of s.frames[sd]) {
+      if (!f.filled) { snap[sd].push(null); continue; }
+      // Capture the LIVE rendered objects so we can transfer them onto the relaid frames without
+      // re-decoding — re-decoding many GIFs at once is exactly what breaks on low-memory devices
+      // (iOS). Also grab the blob (from the DB, or recovered from the live object URL when the item
+      // was never persisted because storage was full) so the item can be re-saved after the resize.
+      const type = f.video ? 'video' : f.gif ? 'gif' : 'image';
+      const it = { type, title: f.title || '', srcURL: f.srcURL, map: f.mat.map, gif: f.gif, video: f.video, natW: f.natW, natH: f.natH, blob: null };
+      const rec = await DB.get(f.id);
+      if (rec && rec.blob) it.blob = rec.blob;
+      else if (f.srcURL) { try { it.blob = await (await fetch(f.srcURL)).blob(); } catch (e) {} }
+      // Detach the live media from the old frame so the imminent teardown (removeFrame → stopGif /
+      // video cleanup) can't dispose the objects we're about to hand to the new frame.
+      f.gif = null; f.video = null;
+      snap[sd].push(it);
+    } }
+  return snap;
+}
+// Move captured live media onto a rebuilt frame — no decode, no reload, keeps the exact pixels and a
+// GIF's running animation. Redirects the GIF anim / video texture to the new frame object.
+function transferMedia(f, it) {
+  if (f.mat.map && f.mat.map !== it.map) f.mat.map.dispose?.();
+  f.mat.map = it.map; f.mat.needsUpdate = true;
+  f.srcURL = it.srcURL; f.title = it.title || ''; f.filled = true; f.video = it.video || null;
+  if (it.gif) { it.gif.frame = f; f.gif = it.gif; if (!gifAnims.includes(it.gif)) gifAnims.push(it.gif); }
+  if (it.natW != null) sizeFrame(f, it.natW, it.natH);
+  drawPlate(f);
+}
+// Drop live media that couldn't be re-placed (e.g. a frame removed by shrinking on undo).
+function discardMedia(it) { if (!it) return; if (it.gif) stopGif({ gif: it.gif }); else it.map?.dispose?.(); if (it.video) { try { it.video.pause(); it.video.src = ''; } catch (e) {} } }
+// Guard so the wholesale frame teardown inside a resize does NOT fire removeFrame's own
+// (un-awaited) DB.del — those races the re-writes below and can wipe a frame's saved media. During a
+// resize we reconcile the DB deterministically instead (delete only truly-orphaned ids, then put).
+let resizingDB = false;
+// Resize a space to new bounds in place, rebuilding its floor/ceiling/lights/walls/frames while
+// preserving its openings (doorways to neighbours stay put — neighbours don't move) and re-hanging
+// its media onto the relaid frames. Existing pictures stay anchored to whichever end of each wall
+// did NOT move, so a wall that slides outward carries its media along and the fresh frames appear
+// (blank) at the newly-opened end. Neighbours need no rebuild — their geometry and the shared
+// openings are unchanged.
+async function resizeSpace(s, nb) {
+  const snap = await snapshotSideMedia(s);
+  const oldB = { x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 };
+  const oldIds = new Set(); for (const sd of SIDES) for (const f of s.frames[sd]) oldIds.add(f.id);
+  const savedSides = {}; for (const sd of SIDES) savedSides[sd] = (s.sides[sd] || []).map(p => p.slice());
+  const savedParent = s.parentSide;
+  resizingDB = true;                                 // suppress removeFrame's fire-and-forget DB.del
+  disposeSpace(s);                                   // removes base meshes + walls + frames (meshes only)
+  s.x0 = nb.x0; s.x1 = nb.x1; s.z0 = nb.z0; s.z1 = nb.z1;
+  buildSpaceBase(s);                                 // recreates base; resets s.sides / s.walls / s.frames
+  for (const sd of SIDES) s.sides[sd] = savedSides[sd]; s.parentSide = savedParent;
+  for (const sd of SIDES) buildWallSide(s, sd);
+  resizingDB = false;
+  // Re-hang media onto the relaid frames by TRANSFERRING the live textures/animations (no re-decode),
+  // collecting what to persist.
+  const puts = []; const keep = new Set();
+  for (const sd of SIDES) { const items = snap[sd], fr = s.frames[sd]; const axisX = (sd === 'N' || sd === 'S');
+    // Frames are ordered by increasing u (x for N/S, z for E/W). If the wall's LOW-u boundary is the
+    // one that moved, keep media anchored to the (fixed) HIGH-u end — shift by the frame-count delta
+    // so the new/removed slot lands at the low end. Otherwise anchor to the low end (offset 0).
+    const lowMoved = axisX ? (nb.x0 !== oldB.x0) : (nb.z0 !== oldB.z0);
+    const highMoved = axisX ? (nb.x1 !== oldB.x1) : (nb.z1 !== oldB.z1);
+    const offset = (lowMoved && !highMoved) ? (fr.length - items.length) : 0;
+    for (let i = 0; i < items.length; i++) { const it = items[i]; if (!it) continue; const j = i + offset;
+      if (j < 0 || j >= fr.length) { discardMedia(it); continue; }        // no target frame (shrunk away) → clean up
+      const f = fr[j]; transferMedia(f, it);
+      keep.add(f.id); if (it.blob) puts.push({ frame: f.id, type: it.type, blob: it.blob, title: f.title }); } }
+  // Deterministic DB reconciliation, fully awaited: drop only ids that are no longer used, then write
+  // the current media. No fire-and-forget deletes, so nothing races these writes.
+  for (const id of oldIds) if (!keep.has(id)) { try { await DB.del(id); } catch (e) {} }
+  for (const rec of puts) { try { await DB.put(rec); } catch (e) { toast('Storage full — some media is shown this session only'); } }
+  applyTheme(s, false); applyFrameClamps(); saveConfig(); buildWingEditor(); updateCount();
+}
+// "Extend room": push the faced wall outward by one picture's worth of depth so each perpendicular
+// wall gains room for one more frame. Only walls with no doorway can be extended (moving a wall with
+// an opening would tear it away from the space on the other side).
+async function extendSpace(id, side) {
+  const s = spaces.get(id); if (!s) return;
+  if ((s.sides[side] || []).length > 0) { toast('That wall has a doorway — extend one of its other walls'); return; }
+  const nb = { x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 };
+  if (side === 'N') nb.z0 -= EXTEND_STEP; else if (side === 'S') nb.z1 += EXTEND_STEP; else if (side === 'E') nb.x1 += EXTEND_STEP; else nb.x0 -= EXTEND_STEP;
+  if (overlapsExcept(nb.x0, nb.x1, nb.z0, nb.z1, id)) { toast("No room to extend that way — something's in the way"); return; }
+  const old = { x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 };
+  await resizeSpace(s, nb);
+  toast('Room extended — space for one more picture on each side');
+  pushUndo('extend room', () => resizeSpace(s, old));
+}
+
 /* ===== media ===== */
 // Kept on-screen (but tucked behind the WebGL canvas) rather than off-screen: browsers pause
 // GIF animation for images outside the viewport, which would freeze the wall texture on its
@@ -562,7 +659,7 @@ function applyGif(f, url) {
   // We decode GIF frames ourselves in JS and drive them on the render clock (the browser won't
   // animate a hidden <img> on iOS, and WebCodecs ImageDecoder isn't in Safari).
   const anim = { mode: 'dec', frame: f, tex, frames: [], w: 0, h: 0, idx: 0, acc: 0, lastIdx: -1 };
-  f.gif = anim; gifAnims.push(anim); decodeGif(url, anim, f);
+  f.gif = anim; gifAnims.push(anim); decodeGif(url, anim);
   drawPlate(f); updateCount();
 }
 // Advance one GIF's animation. Called per-frame by updateGifs, which only passes inView=true for
@@ -585,34 +682,37 @@ function flipGifRows(imageData, W, H) { const src = imageData.data, rb = W * 4, 
 // fallback (black until touched). Serializing keeps peak memory to a single GIF — the same
 // condition that already works when adding one by hand.
 let gifQueue = Promise.resolve();
-function decodeGif(url, anim, f) { gifQueue = gifQueue.then(() => anim.dead ? null : decodeGifNow(url, anim, f)).catch(e => console.warn('gif decode error', e)); }
-async function decodeGifNow(url, anim, f) {
+// Decode always targets anim.frame (the anim's CURRENT owner) rather than a captured frame, so if a
+// resize transfers this animation onto a different frame object, an in-flight or queued decode still
+// lands on the right frame.
+function decodeGif(url, anim) { gifQueue = gifQueue.then(() => anim.dead ? null : decodeGifNow(url, anim)).catch(e => console.warn('gif decode error', e)); }
+async function decodeGifNow(url, anim) {
   try {
     const buf = await (await fetch(url)).arrayBuffer(); if (anim.dead) return;
     const g = parseGif(buf, 512); if (!g.frames.length) throw new Error('no frames'); if (anim.dead) return;
     // Frames are raw RGBA typed arrays (downscaled to <=512px; the crisp view is the lightbox,
     // which uses the original blob), swapped into the DataTexture — no canvas in the upload path.
-    anim.w = g.width; anim.h = g.height; fitAspect(f, g.width / g.height);
+    anim.w = g.width; anim.h = g.height; fitAspect(anim.frame, g.width / g.height);
     anim.frames = g.frames.map(fr => ({ data: flipGifRows(fr.data, g.width, g.height), dur: fr.dur }));
     // Create the DataTexture at its final size (resizing a placeholder texture uploads the first
     // frame into an undersized GPU allocation and renders black). Per-frame updates keep this size.
     const tex = new THREE.DataTexture(anim.frames[0].data, g.width, g.height, THREE.RGBAFormat);
     tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.flipY = false; tex.needsUpdate = true;
-    anim.tex.dispose?.(); anim.tex = tex; f.mat.map = tex; f.mat.needsUpdate = true;
+    anim.tex.dispose?.(); anim.tex = tex; anim.frame.mat.map = tex; anim.frame.mat.needsUpdate = true;
     anim.idx = 0; anim.acc = 0; anim.lastIdx = 0;
     await new Promise(r => setTimeout(r, 0)); // yield between GIFs (setTimeout, not rAF, so the queue never stalls if rAF is throttled)
-  } catch (e) { console.warn('GIF decode failed, using static fallback', e); gifImgFallback(url, anim, f); }
+  } catch (e) { console.warn('GIF decode failed, using static fallback', e); gifImgFallback(url, anim); }
 }
 // Last-resort fallback if manual decode fails: show the GIF via an <img> drawn to a canvas
 // texture. force decode() so it paints without a repaint (iOS defers off-screen image decode).
-function gifImgFallback(url, anim, f) {
+function gifImgFallback(url, anim) {
   if (anim.dead) return;
   const cv = document.createElement('canvas'); cv.width = 2; cv.height = 2; const cx = cv.getContext('2d');
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
   anim.tex.dispose?.(); anim.tex = tex; anim.cv = cv; anim.cx = cx; anim.mode = 'img';
-  f.mat.map = tex; f.mat.needsUpdate = true;
+  anim.frame.mat.map = tex; anim.frame.mat.needsUpdate = true;
   const img = document.createElement('img'); img.src = url; gifHost.appendChild(img);
-  const show = () => { if (anim.dead) return; cv.width = img.naturalWidth || 320; cv.height = img.naturalHeight || 240; fitAspect(f, cv.width / cv.height); };
+  const show = () => { if (anim.dead) return; cv.width = img.naturalWidth || 320; cv.height = img.naturalHeight || 240; fitAspect(anim.frame, cv.width / cv.height); };
   img.decode?.().then(show).catch(() => {}); img.onload = show; anim.img = img;
 }
 // Minimal GIF87a/89a decoder → composited frames as ImageData, downscaled to maxDim, with delays.
@@ -758,12 +858,10 @@ function endTouch(e) { for (const t of e.changedTouches) { if (t.identifier === 
 addEventListener('touchend', endTouch); addEventListener('touchcancel', endTouch);
 function updJoy(t, c) { let dx = t.clientX - c.x, dy = t.clientY - c.y; const d = Math.hypot(dx, dy); if (d > joyR) { dx *= joyR / d; dy *= joyR / d; } knob.style.transform = `translate(${dx}px,${dy}px)`; joyX = dx / joyR; joyY = dy / joyR; }
 document.getElementById('useBtn').addEventListener('click', interact);
-document.getElementById('wingBtn').addEventListener('click', () => buildAtWall('wing'));
-document.getElementById('headBtn').addEventListener('click', () => { if (lookingWall) titleWall(); });
 
 /* ===== look + interact ===== */
 const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null, lookingFloor = null;
-const promptEl = document.getElementById('prompt'), crossEl = document.getElementById('crosshair'), headBtnEl = document.getElementById('headBtn');
+const promptEl = document.getElementById('prompt'), crossEl = document.getElementById('crosshair');
 function updateLook() {
   raycaster.setFromCamera({ x: 0, y: 0 }, camera); const arts = frames.map(f => f.art); const flrs = []; spaces.forEach(s => { if (s.floor) flrs.push(s.floor); }); const objs = [...arts, ...wallMeshes, ...flrs];
   const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null; lookingFloor = null;
@@ -772,10 +870,9 @@ function updateLook() {
     else if (hit.object.userData.add && hit.distance < 5.5) { const ad = hit.object.userData.add; const u = (ad.side === 'N' || ad.side === 'S') ? hit.point.x : hit.point.z; lookingWall = { id: ad.id, side: ad.side, u }; }
     else if (hit.object.userData.floorId && hit.distance < 8) lookingFloor = { id: hit.object.userData.floorId }; }
   if (inTour && !GT.active && lookingAt) { crossEl.classList.add('active'); if (!lookingAt.filled) showPrompt('<b>' + (isTouch ? 'USE' : 'Click') + '</b> to hang a photo, video or GIF'); else showPrompt(isTouch ? '<b>USE</b> to view' : '<b>Click</b> to view · <b>R-click</b> build a wing here · <b>⌫</b> clear'); }
-  else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> for wall options' : '<b>Click</b> for wall options (hall, wing, colour, heading)'); }
+  else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> for wall options' : '<b>Click</b> for wall options (hall, wing, extend, heading)'); }
   else if (inTour && !GT.active && lookingFloor) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> to change the floor' : '<b>Click</b> to change the floor design'); }
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
-  if (isTouch) { const showHead = inTour && !GT.active && !!lookingWall; document.body.classList.toggle('lookwall', showHead); if (showHead) headBtnEl.textContent = wallHeadingText(lookingWall).trim() ? '✎ TITLE' : '＋ TITLE'; }
 }
 const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
 function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else openLightbox(f); } else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
@@ -834,7 +931,7 @@ function openCtxMenu(kind, target) {
   if (kind === 'wall') {
     ctxAddBtn(optsEl, '＋ Build a hall here', 'accent', () => { closeCtxMenu(); buildSpaceFrom('hall', s, target.side, target.u); });
     ctxAddBtn(optsEl, '＋ Build a wing here', 'accent', () => { closeCtxMenu(); buildSpaceFrom('wing', s, target.side, target.u); });
-    ctxAddSwatches(optsEl, 'Wall colour', WALL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === s.wallColor })), false, (c) => { s.wallColor = c.value; applyTheme(s); buildWingEditor(); });
+    ctxAddBtn(optsEl, '⤢ Extend room (fit one more picture per side)', '', () => { closeCtxMenu(); extendSpace(target.id, target.side); });
     const has = wallHeadingText({ id: target.id, side: target.side }).trim();
     ctxAddBtn(optsEl, has ? '✎ Edit wall heading' : '＋ Add wall heading', '', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleWall({ id: target.id, side: target.side, u: target.u }); });
     if (has) ctxAddBtn(optsEl, '⌫ Remove heading', 'warn', () => { setWallHeading({ id: target.id, side: target.side }, ''); closeCtxMenu(); toast('Heading removed'); });
@@ -842,7 +939,7 @@ function openCtxMenu(kind, target) {
     ctxAddSwatches(optsEl, 'Floor design', FLOOR_TYPES.map(t => ({ label: t.name, value: t.value, on: t.value === s.floorType })), true, (t) => { s.floorType = t.value; applyTheme(s); buildWingEditor(); });
     ctxAddSwatches(optsEl, 'Wall colour', WALL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === s.wallColor })), false, (c) => { s.wallColor = c.value; applyTheme(s); buildWingEditor(); });
   }
-  ctxMenuEl.classList.add('open'); ctxOpen = true; document.body.classList.remove('lookwall'); promptEl.classList.remove('show');
+  ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function closeCtxMenu() { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; if (!isTouch && started) try { canvas.requestPointerLock?.(); } catch (e) {} }
