@@ -254,6 +254,10 @@ const floorMatFor = (k) => FLOOR_MAT[k] || FLOOR_MAT.wood;
 // one hall segment's side wall, and wings on two adjacent hall segments don't clip into each other.
 const RW = 18, RD = 14, HALLW = 4.8, HALLLEN = 20, H = 5, DOORW = 3.2, DOORH = 3.0, T = 0.4;
 const HEADH = 0.28; // height of the black lintel band above a doorway; the room-colored wall starts above it
+// How far "Extend room" pushes a wall outward. Matches wallSeg's ~4.2 picture spacing, so each
+// extension grows the two perpendicular walls by exactly one more frame slot apiece (floor((L-1.4)/4.2)
+// gains exactly 1 when L grows by 4.2).
+const EXTEND_STEP = 4.2;
 // Preset themes: quick-apply bundles of wall color, floor, roughness, metalness, lighting
 const PRESETS = [
   { id: 'classic',  name: 'Classic Hall', wall: 0xd8cdb6, floor: 'wood',     rough: .8,  metal: 0,  light: 0xffe6c0, li: 46, accent: 0xffcf95 },
@@ -510,6 +514,7 @@ function applyTheme(s, save = true) {
   if (save) saveConfig();
 }
 function overlaps(x0, x1, z0, z1) { const e = 0.4; for (const s of spaces.values()) if (x0 < s.x1 - e && x1 > s.x0 + e && z0 < s.z1 - e && z1 > s.z0 + e) return true; return false; }
+function overlapsExcept(x0, x1, z0, z1, exceptId) { const e = 0.4; for (const s of spaces.values()) { if (s.id === exceptId) continue; if (x0 < s.x1 - e && x1 > s.x0 + e && z0 < s.z1 - e && z1 > s.z0 + e) return true; } return false; }
 
 function buildSpaceFrom(type, parent, side, uHit) {
   const isX = (side === 'N' || side === 'S'); const W = type === 'hall' ? HALLW : RW, L = type === 'hall' ? HALLLEN : RD; const half = type === 'hall' ? HALLW / 2 : DOORW / 2;
@@ -539,6 +544,50 @@ function buildSpaceFrom(type, parent, side, uHit) {
   applyTheme(s, false); applyFrameClamps(); saveConfig(); buildWingEditor(); updateCount();
   toast('New ' + type + ' built — walk through the opening');
   pushUndo('build ' + type, () => deleteSpace(s.id, { undo: false }));
+}
+
+// Capture the media hung on each side, in wall order, before a resize wipes/relays the frames.
+// Returns per-side arrays of { type, blob, title } (or null for an empty slot) so they can be
+// re-hung onto the rebuilt frames in the same order afterwards.
+async function snapshotSideMedia(s) {
+  const snap = {};
+  for (const sd of SIDES) { snap[sd] = [];
+    for (const f of s.frames[sd]) { if (f.filled) { const rec = await DB.get(f.id); snap[sd].push(rec ? { type: rec.type, blob: rec.blob, title: rec.title || f.title || '' } : null); } else snap[sd].push(null); } }
+  return snap;
+}
+// Resize a space to new bounds in place, rebuilding its floor/ceiling/lights/walls/frames while
+// preserving its openings (doorways to neighbours stay put — neighbours don't move) and re-hanging
+// its media onto the relaid frames side-by-side in order. Neighbours need no rebuild because their
+// geometry and the shared openings are unchanged.
+async function resizeSpace(s, nb) {
+  const snap = await snapshotSideMedia(s);
+  const savedSides = {}; for (const sd of SIDES) savedSides[sd] = (s.sides[sd] || []).map(p => p.slice());
+  const savedParent = s.parentSide;
+  disposeSpace(s);                                   // removes base meshes + walls + frames (and their DB records)
+  s.x0 = nb.x0; s.x1 = nb.x1; s.z0 = nb.z0; s.z1 = nb.z1;
+  buildSpaceBase(s);                                 // recreates base; resets s.sides / s.walls / s.frames
+  for (const sd of SIDES) s.sides[sd] = savedSides[sd]; s.parentSide = savedParent;
+  for (const sd of SIDES) buildWallSide(s, sd);
+  for (const sd of SIDES) { const items = snap[sd], fr = s.frames[sd];
+    for (let i = 0; i < items.length && i < fr.length; i++) { const it = items[i]; if (!it) continue; const f = fr[i];
+      f.title = it.title || ''; applyByType(f, it.type, URL.createObjectURL(it.blob));
+      try { await DB.put({ frame: f.id, type: it.type, blob: it.blob, title: f.title }); } catch {}
+      drawPlate(f); } }
+  applyTheme(s, false); applyFrameClamps(); saveConfig(); buildWingEditor(); updateCount();
+}
+// "Extend room": push the faced wall outward by one picture's worth of depth so each perpendicular
+// wall gains room for one more frame. Only walls with no doorway can be extended (moving a wall with
+// an opening would tear it away from the space on the other side).
+async function extendSpace(id, side) {
+  const s = spaces.get(id); if (!s) return;
+  if ((s.sides[side] || []).length > 0) { toast('That wall has a doorway — extend one of its other walls'); return; }
+  const nb = { x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 };
+  if (side === 'N') nb.z0 -= EXTEND_STEP; else if (side === 'S') nb.z1 += EXTEND_STEP; else if (side === 'E') nb.x1 += EXTEND_STEP; else nb.x0 -= EXTEND_STEP;
+  if (overlapsExcept(nb.x0, nb.x1, nb.z0, nb.z1, id)) { toast("No room to extend that way — something's in the way"); return; }
+  const old = { x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 };
+  await resizeSpace(s, nb);
+  toast('Room extended — space for one more picture on each side');
+  pushUndo('extend room', () => resizeSpace(s, old));
 }
 
 /* ===== media ===== */
@@ -834,6 +883,7 @@ function openCtxMenu(kind, target) {
   if (kind === 'wall') {
     ctxAddBtn(optsEl, '＋ Build a hall here', 'accent', () => { closeCtxMenu(); buildSpaceFrom('hall', s, target.side, target.u); });
     ctxAddBtn(optsEl, '＋ Build a wing here', 'accent', () => { closeCtxMenu(); buildSpaceFrom('wing', s, target.side, target.u); });
+    ctxAddBtn(optsEl, '⤢ Extend room (fit one more picture per side)', '', () => { closeCtxMenu(); extendSpace(target.id, target.side); });
     ctxAddSwatches(optsEl, 'Wall colour', WALL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === s.wallColor })), false, (c) => { s.wallColor = c.value; applyTheme(s); buildWingEditor(); });
     const has = wallHeadingText({ id: target.id, side: target.side }).trim();
     ctxAddBtn(optsEl, has ? '✎ Edit wall heading' : '＋ Add wall heading', '', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleWall({ id: target.id, side: target.side, u: target.u }); });
