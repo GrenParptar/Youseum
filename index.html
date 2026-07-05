@@ -62,8 +62,6 @@
   #joy { position: absolute; left: 30px; bottom: 30px; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.18); }
   #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255,255,255,.5); border: 2px solid rgba(255,255,255,.7); }
   #useBtn { position: absolute; right: 34px; bottom: 64px; width: 84px; height: 84px; border-radius: 50%; border: 2px solid rgba(255,210,122,.8); background: rgba(255,210,122,.18); color: #ffe6b0; font: 700 16px inherit; letter-spacing: 1px; } #useBtn:active { background: rgba(255,210,122,.4); }
-  #wingBtn { position: absolute; right: 40px; bottom: 158px; width: 72px; height: 56px; border-radius: 14px; border: 2px solid rgba(180,210,255,.7); background: rgba(120,150,255,.18); color: #cfe0ff; font: 700 13px inherit; display: none; } body.tour.touch #wingBtn { display: block; } #wingBtn:active { background: rgba(120,150,255,.4); }
-  #headBtn { position: absolute; right: 40px; bottom: 226px; width: 72px; height: 50px; border-radius: 14px; border: 2px solid rgba(255,210,122,.7); background: rgba(255,210,122,.16); color: #ffe6b0; font: 700 12px inherit; display: none; } body.tour.touch.lookwall #headBtn { display: block; } #headBtn:active { background: rgba(255,210,122,.4); }
   #toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%) translateY(20px); background: rgba(20,20,26,.96); border: 1px solid rgba(255,255,255,.12); color: #f0f0f4; padding: 11px 18px; border-radius: 10px; font-size: 14px; z-index: 32; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: 80vw; text-align: center; } #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   #drop { position: fixed; inset: 0; z-index: 18; pointer-events: none; display: grid; place-items: center; background: rgba(255,210,122,.10); border: 3px dashed rgba(255,210,122,.7); opacity: 0; transition: opacity .15s; } #drop.show { opacity: 1; } #drop span { background: rgba(12,12,16,.9); color: #ffd27a; padding: 14px 22px; border-radius: 12px; font-size: 16px; font-weight: 600; }
   /* Lightbox — closer view of a piece */
@@ -127,7 +125,7 @@
       <div class="lbl">Rooms &amp; halls — name, theme &amp; music</div>
       <div class="musicrow" style="margin-bottom:2px"><label class="switch"><input type="checkbox" id="sectionTitlesOn" checked><span></span></label><span>Show wall headings (large titles)</span></div>
       <div id="wings"></div>
-      <div class="lbl" style="margin-top:2px;color:#6a6a76">Build more by facing a wall: <b style="color:#9a9aa6">left-click for a hall, right-click for a wing</b> (touch: USE / WING). Face a wall and press <b style="color:#9a9aa6">T</b> to add or edit its heading, <b style="color:#9a9aa6">⌫</b> to remove it.</div>
+      <div class="lbl" style="margin-top:2px;color:#6a6a76">Build more by facing a wall: <b style="color:#9a9aa6">left-click for a hall, right-click for a wing</b> (touch: tap USE for wall options — hall, wing, extend, heading). On desktop, press <b style="color:#9a9aa6">T</b> to add or edit a wall heading, <b style="color:#9a9aa6">⌫</b> to remove it.</div>
     </div>
     <div class="grp">
       <div class="lbl">Your gallery</div>
@@ -147,7 +145,7 @@
     <div class="grp"><button class="item" data-act="exit">⤿ Exit to start screen</button></div>
   </div>
   <div id="overview"><div class="ohead"><h2>All <span class="accent">rooms</span></h2><button class="oclose" id="ovClose">Close ✕</button></div><div id="ogrid"></div></div>
-  <div id="touch"><div id="joy"><div id="knob"></div></div><button id="useBtn">USE</button><button id="wingBtn">＋ WING</button><button id="headBtn">＋ TITLE</button></div>
+  <div id="touch"><div id="joy"><div id="knob"></div></div><button id="useBtn">USE</button></div>
   <div id="drop"><span>Drop photos &amp; videos to hang them</span></div>
   <div id="overlay">
     <div class="card">
@@ -161,7 +159,7 @@
       </div>
       <div class="controls touchonly" style="grid-template-columns:1fr">
         <div class="row">🕹️ Left thumb to move · drag right side to look</div>
-        <div class="row">Tap <b style="color:#ffd27a">&nbsp;USE&nbsp;</b> to fill a frame or build a hall · <b style="color:#cfe0ff">＋WING</b> for a room</div>
+        <div class="row">Tap <b style="color:#ffd27a">&nbsp;USE&nbsp;</b> to fill a frame, or face a wall for options (hall, wing, extend, title)</div>
         <div class="row">☰ Menu for media, rooms, music &amp; saving</div>
       </div>
       <button id="start" class="btn primary">Enter the museum</button>
@@ -557,10 +555,13 @@ async function snapshotSideMedia(s) {
 }
 // Resize a space to new bounds in place, rebuilding its floor/ceiling/lights/walls/frames while
 // preserving its openings (doorways to neighbours stay put — neighbours don't move) and re-hanging
-// its media onto the relaid frames side-by-side in order. Neighbours need no rebuild because their
-// geometry and the shared openings are unchanged.
+// its media onto the relaid frames. Existing pictures stay anchored to whichever end of each wall
+// did NOT move, so a wall that slides outward carries its media along and the fresh frames appear
+// (blank) at the newly-opened end. Neighbours need no rebuild — their geometry and the shared
+// openings are unchanged.
 async function resizeSpace(s, nb) {
   const snap = await snapshotSideMedia(s);
+  const oldB = { x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 };
   const savedSides = {}; for (const sd of SIDES) savedSides[sd] = (s.sides[sd] || []).map(p => p.slice());
   const savedParent = s.parentSide;
   disposeSpace(s);                                   // removes base meshes + walls + frames (and their DB records)
@@ -568,8 +569,14 @@ async function resizeSpace(s, nb) {
   buildSpaceBase(s);                                 // recreates base; resets s.sides / s.walls / s.frames
   for (const sd of SIDES) s.sides[sd] = savedSides[sd]; s.parentSide = savedParent;
   for (const sd of SIDES) buildWallSide(s, sd);
-  for (const sd of SIDES) { const items = snap[sd], fr = s.frames[sd];
-    for (let i = 0; i < items.length && i < fr.length; i++) { const it = items[i]; if (!it) continue; const f = fr[i];
+  for (const sd of SIDES) { const items = snap[sd], fr = s.frames[sd]; const axisX = (sd === 'N' || sd === 'S');
+    // Frames are ordered by increasing u (x for N/S, z for E/W). If the wall's LOW-u boundary is the
+    // one that moved, keep media anchored to the (fixed) HIGH-u end — shift by the frame-count delta
+    // so the new/removed slot lands at the low end. Otherwise anchor to the low end (offset 0).
+    const lowMoved = axisX ? (nb.x0 !== oldB.x0) : (nb.z0 !== oldB.z0);
+    const highMoved = axisX ? (nb.x1 !== oldB.x1) : (nb.z1 !== oldB.z1);
+    const offset = (lowMoved && !highMoved) ? (fr.length - items.length) : 0;
+    for (let i = 0; i < items.length; i++) { const it = items[i]; if (!it) continue; const j = i + offset; if (j < 0 || j >= fr.length) continue; const f = fr[j];
       f.title = it.title || ''; applyByType(f, it.type, URL.createObjectURL(it.blob));
       try { await DB.put({ frame: f.id, type: it.type, blob: it.blob, title: f.title }); } catch {}
       drawPlate(f); } }
@@ -807,12 +814,10 @@ function endTouch(e) { for (const t of e.changedTouches) { if (t.identifier === 
 addEventListener('touchend', endTouch); addEventListener('touchcancel', endTouch);
 function updJoy(t, c) { let dx = t.clientX - c.x, dy = t.clientY - c.y; const d = Math.hypot(dx, dy); if (d > joyR) { dx *= joyR / d; dy *= joyR / d; } knob.style.transform = `translate(${dx}px,${dy}px)`; joyX = dx / joyR; joyY = dy / joyR; }
 document.getElementById('useBtn').addEventListener('click', interact);
-document.getElementById('wingBtn').addEventListener('click', () => buildAtWall('wing'));
-document.getElementById('headBtn').addEventListener('click', () => { if (lookingWall) titleWall(); });
 
 /* ===== look + interact ===== */
 const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null, lookingFloor = null;
-const promptEl = document.getElementById('prompt'), crossEl = document.getElementById('crosshair'), headBtnEl = document.getElementById('headBtn');
+const promptEl = document.getElementById('prompt'), crossEl = document.getElementById('crosshair');
 function updateLook() {
   raycaster.setFromCamera({ x: 0, y: 0 }, camera); const arts = frames.map(f => f.art); const flrs = []; spaces.forEach(s => { if (s.floor) flrs.push(s.floor); }); const objs = [...arts, ...wallMeshes, ...flrs];
   const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null; lookingFloor = null;
@@ -821,10 +826,9 @@ function updateLook() {
     else if (hit.object.userData.add && hit.distance < 5.5) { const ad = hit.object.userData.add; const u = (ad.side === 'N' || ad.side === 'S') ? hit.point.x : hit.point.z; lookingWall = { id: ad.id, side: ad.side, u }; }
     else if (hit.object.userData.floorId && hit.distance < 8) lookingFloor = { id: hit.object.userData.floorId }; }
   if (inTour && !GT.active && lookingAt) { crossEl.classList.add('active'); if (!lookingAt.filled) showPrompt('<b>' + (isTouch ? 'USE' : 'Click') + '</b> to hang a photo, video or GIF'); else showPrompt(isTouch ? '<b>USE</b> to view' : '<b>Click</b> to view · <b>R-click</b> build a wing here · <b>⌫</b> clear'); }
-  else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> for wall options' : '<b>Click</b> for wall options (hall, wing, colour, heading)'); }
+  else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> for wall options' : '<b>Click</b> for wall options (hall, wing, extend, heading)'); }
   else if (inTour && !GT.active && lookingFloor) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> to change the floor' : '<b>Click</b> to change the floor design'); }
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
-  if (isTouch) { const showHead = inTour && !GT.active && !!lookingWall; document.body.classList.toggle('lookwall', showHead); if (showHead) headBtnEl.textContent = wallHeadingText(lookingWall).trim() ? '✎ TITLE' : '＋ TITLE'; }
 }
 const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
 function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else openLightbox(f); } else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
@@ -884,7 +888,6 @@ function openCtxMenu(kind, target) {
     ctxAddBtn(optsEl, '＋ Build a hall here', 'accent', () => { closeCtxMenu(); buildSpaceFrom('hall', s, target.side, target.u); });
     ctxAddBtn(optsEl, '＋ Build a wing here', 'accent', () => { closeCtxMenu(); buildSpaceFrom('wing', s, target.side, target.u); });
     ctxAddBtn(optsEl, '⤢ Extend room (fit one more picture per side)', '', () => { closeCtxMenu(); extendSpace(target.id, target.side); });
-    ctxAddSwatches(optsEl, 'Wall colour', WALL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === s.wallColor })), false, (c) => { s.wallColor = c.value; applyTheme(s); buildWingEditor(); });
     const has = wallHeadingText({ id: target.id, side: target.side }).trim();
     ctxAddBtn(optsEl, has ? '✎ Edit wall heading' : '＋ Add wall heading', '', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleWall({ id: target.id, side: target.side, u: target.u }); });
     if (has) ctxAddBtn(optsEl, '⌫ Remove heading', 'warn', () => { setWallHeading({ id: target.id, side: target.side }, ''); closeCtxMenu(); toast('Heading removed'); });
@@ -892,7 +895,7 @@ function openCtxMenu(kind, target) {
     ctxAddSwatches(optsEl, 'Floor design', FLOOR_TYPES.map(t => ({ label: t.name, value: t.value, on: t.value === s.floorType })), true, (t) => { s.floorType = t.value; applyTheme(s); buildWingEditor(); });
     ctxAddSwatches(optsEl, 'Wall colour', WALL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === s.wallColor })), false, (c) => { s.wallColor = c.value; applyTheme(s); buildWingEditor(); });
   }
-  ctxMenuEl.classList.add('open'); ctxOpen = true; document.body.classList.remove('lookwall'); promptEl.classList.remove('show');
+  ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
   if (document.pointerLockElement) document.exitPointerLock();
 }
 function closeCtxMenu() { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; if (!isTouch && started) try { canvas.requestPointerLock?.(); } catch (e) {} }
