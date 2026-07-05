@@ -277,7 +277,7 @@ const YAWFOR = { N: 0, S: Math.PI, E: -Math.PI / 2, W: Math.PI / 2 };
 /* ===== collider-aware box ===== */
 const colliders = [];
 function box(cx, cy, cz, sx, sy, sz, mat, solid = true) { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat); m.position.set(cx, cy, cz); scene.add(m); if (solid) { const b = new THREE.Box3().setFromObject(m); m.userData.collider = b; colliders.push(b); } return m; }
-function removeBox(m) { if (!m) return; scene.remove(m); const b = m.userData.collider; if (b) { const i = colliders.indexOf(b); if (i >= 0) colliders.splice(i, 1); } m.geometry?.dispose?.(); }
+function removeBox(m) { if (!m) return; scene.remove(m); const b = m.userData.collider; if (b) { const i = colliders.indexOf(b); if (i >= 0) colliders.splice(i, 1); } const wi = wallMeshes.indexOf(m); if (wi >= 0) wallMeshes.splice(wi, 1); m.geometry?.dispose?.(); }
 const baseMat = new THREE.MeshStandardMaterial({ color: 0x201f1d, roughness: .85 });
 const stripMat = new THREE.MeshStandardMaterial({ color: 0xfff4dc, emissive: 0xfff0d0, emissiveIntensity: 1.1 });
 const doorTrimMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: .7, metalness: .2 });
@@ -466,8 +466,14 @@ function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
   // Start the room-colored header above the black lintel band (with a hidden overlap) so its colour
   // never sits behind / z-fights the black frame at the top of the opening.
   const dir = (side === 'N' || side === 'W') ? 1 : -1; const yBot = DOORH + HEADH - 0.05, midY = (yBot + H) / 2, hdrH = H - yBot;
-  if (side === 'N' || side === 'S') { const z = (side === 'N' ? s.z0 : s.z1) + dir * inset; return [box((lo + hi) / 2, midY, z, hi - lo, hdrH, T, mat, false)]; }
-  const x = (side === 'E' ? s.x1 : s.x0) + dir * inset; return [box(x, midY, (lo + hi) / 2, T, hdrH, hi - lo, mat, false)];
+  let hdr;
+  if (side === 'N' || side === 'S') { const z = (side === 'N' ? s.z0 : s.z1) + dir * inset; hdr = box((lo + hi) / 2, midY, z, hi - lo, hdrH, T, mat, false); }
+  else { const x = (side === 'E' ? s.x1 : s.x0) + dir * inset; hdr = box(x, midY, (lo + hi) / 2, T, hdrH, hi - lo, mat, false); }
+  // The wall above a door belongs to this space's wall, so make it raycast-selectable (tagged to
+  // this space) — otherwise the in-world colour picker can't hit it and it never retints when you
+  // recolour the room. removeBox() drops it from wallMeshes when the doorway is torn down.
+  hdr.userData.add = { id: s.id, side }; wallMeshes.push(hdr);
+  return [hdr];
 }
 // A bold black portal frame around the whole opening — two chunky vertical jambs + a head — set at
 // the boundary between the two spaces and protruding into both rooms. The jambs are wider than a
