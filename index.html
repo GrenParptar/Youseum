@@ -552,15 +552,34 @@ async function snapshotSideMedia(s) {
   for (const sd of SIDES) { snap[sd] = [];
     for (const f of s.frames[sd]) {
       if (!f.filled) { snap[sd].push(null); continue; }
+      // Capture the LIVE rendered objects so we can transfer them onto the relaid frames without
+      // re-decoding — re-decoding many GIFs at once is exactly what breaks on low-memory devices
+      // (iOS). Also grab the blob (from the DB, or recovered from the live object URL when the item
+      // was never persisted because storage was full) so the item can be re-saved after the resize.
+      const type = f.video ? 'video' : f.gif ? 'gif' : 'image';
+      const it = { type, title: f.title || '', srcURL: f.srcURL, map: f.mat.map, gif: f.gif, video: f.video, natW: f.natW, natH: f.natH, blob: null };
       const rec = await DB.get(f.id);
-      if (rec && rec.blob) { snap[sd].push({ type: rec.type, blob: rec.blob, title: rec.title || f.title || '' }); continue; }
-      // Media shown this session but never persisted (e.g. storage was full at add time): recover the
-      // bytes straight from the frame's live object URL so a resize still carries it along.
-      if (f.srcURL) { try { const blob = await (await fetch(f.srcURL)).blob(); snap[sd].push({ type: f.video ? 'video' : f.gif ? 'gif' : 'image', blob, title: f.title || '' }); continue; } catch (e) {} }
-      snap[sd].push(null);
+      if (rec && rec.blob) it.blob = rec.blob;
+      else if (f.srcURL) { try { it.blob = await (await fetch(f.srcURL)).blob(); } catch (e) {} }
+      // Detach the live media from the old frame so the imminent teardown (removeFrame → stopGif /
+      // video cleanup) can't dispose the objects we're about to hand to the new frame.
+      f.gif = null; f.video = null;
+      snap[sd].push(it);
     } }
   return snap;
 }
+// Move captured live media onto a rebuilt frame — no decode, no reload, keeps the exact pixels and a
+// GIF's running animation. Redirects the GIF anim / video texture to the new frame object.
+function transferMedia(f, it) {
+  if (f.mat.map && f.mat.map !== it.map) f.mat.map.dispose?.();
+  f.mat.map = it.map; f.mat.needsUpdate = true;
+  f.srcURL = it.srcURL; f.title = it.title || ''; f.filled = true; f.video = it.video || null;
+  if (it.gif) { it.gif.frame = f; f.gif = it.gif; if (!gifAnims.includes(it.gif)) gifAnims.push(it.gif); }
+  if (it.natW != null) sizeFrame(f, it.natW, it.natH);
+  drawPlate(f);
+}
+// Drop live media that couldn't be re-placed (e.g. a frame removed by shrinking on undo).
+function discardMedia(it) { if (!it) return; if (it.gif) stopGif({ gif: it.gif }); else it.map?.dispose?.(); if (it.video) { try { it.video.pause(); it.video.src = ''; } catch (e) {} } }
 // Guard so the wholesale frame teardown inside a resize does NOT fire removeFrame's own
 // (un-awaited) DB.del — those races the re-writes below and can wipe a frame's saved media. During a
 // resize we reconcile the DB deterministically instead (delete only truly-orphaned ids, then put).
@@ -584,7 +603,8 @@ async function resizeSpace(s, nb) {
   for (const sd of SIDES) s.sides[sd] = savedSides[sd]; s.parentSide = savedParent;
   for (const sd of SIDES) buildWallSide(s, sd);
   resizingDB = false;
-  // Re-hang media onto the relaid frames (in memory), collecting what to persist.
+  // Re-hang media onto the relaid frames by TRANSFERRING the live textures/animations (no re-decode),
+  // collecting what to persist.
   const puts = []; const keep = new Set();
   for (const sd of SIDES) { const items = snap[sd], fr = s.frames[sd]; const axisX = (sd === 'N' || sd === 'S');
     // Frames are ordered by increasing u (x for N/S, z for E/W). If the wall's LOW-u boundary is the
@@ -593,9 +613,10 @@ async function resizeSpace(s, nb) {
     const lowMoved = axisX ? (nb.x0 !== oldB.x0) : (nb.z0 !== oldB.z0);
     const highMoved = axisX ? (nb.x1 !== oldB.x1) : (nb.z1 !== oldB.z1);
     const offset = (lowMoved && !highMoved) ? (fr.length - items.length) : 0;
-    for (let i = 0; i < items.length; i++) { const it = items[i]; if (!it) continue; const j = i + offset; if (j < 0 || j >= fr.length) continue; const f = fr[j];
-      f.title = it.title || ''; applyByType(f, it.type, URL.createObjectURL(it.blob)); drawPlate(f);
-      keep.add(f.id); puts.push({ frame: f.id, type: it.type, blob: it.blob, title: f.title }); } }
+    for (let i = 0; i < items.length; i++) { const it = items[i]; if (!it) continue; const j = i + offset;
+      if (j < 0 || j >= fr.length) { discardMedia(it); continue; }        // no target frame (shrunk away) → clean up
+      const f = fr[j]; transferMedia(f, it);
+      keep.add(f.id); if (it.blob) puts.push({ frame: f.id, type: it.type, blob: it.blob, title: f.title }); } }
   // Deterministic DB reconciliation, fully awaited: drop only ids that are no longer used, then write
   // the current media. No fire-and-forget deletes, so nothing races these writes.
   for (const id of oldIds) if (!keep.has(id)) { try { await DB.del(id); } catch (e) {} }
@@ -638,7 +659,7 @@ function applyGif(f, url) {
   // We decode GIF frames ourselves in JS and drive them on the render clock (the browser won't
   // animate a hidden <img> on iOS, and WebCodecs ImageDecoder isn't in Safari).
   const anim = { mode: 'dec', frame: f, tex, frames: [], w: 0, h: 0, idx: 0, acc: 0, lastIdx: -1 };
-  f.gif = anim; gifAnims.push(anim); decodeGif(url, anim, f);
+  f.gif = anim; gifAnims.push(anim); decodeGif(url, anim);
   drawPlate(f); updateCount();
 }
 // Advance one GIF's animation. Called per-frame by updateGifs, which only passes inView=true for
@@ -661,34 +682,37 @@ function flipGifRows(imageData, W, H) { const src = imageData.data, rb = W * 4, 
 // fallback (black until touched). Serializing keeps peak memory to a single GIF — the same
 // condition that already works when adding one by hand.
 let gifQueue = Promise.resolve();
-function decodeGif(url, anim, f) { gifQueue = gifQueue.then(() => anim.dead ? null : decodeGifNow(url, anim, f)).catch(e => console.warn('gif decode error', e)); }
-async function decodeGifNow(url, anim, f) {
+// Decode always targets anim.frame (the anim's CURRENT owner) rather than a captured frame, so if a
+// resize transfers this animation onto a different frame object, an in-flight or queued decode still
+// lands on the right frame.
+function decodeGif(url, anim) { gifQueue = gifQueue.then(() => anim.dead ? null : decodeGifNow(url, anim)).catch(e => console.warn('gif decode error', e)); }
+async function decodeGifNow(url, anim) {
   try {
     const buf = await (await fetch(url)).arrayBuffer(); if (anim.dead) return;
     const g = parseGif(buf, 512); if (!g.frames.length) throw new Error('no frames'); if (anim.dead) return;
     // Frames are raw RGBA typed arrays (downscaled to <=512px; the crisp view is the lightbox,
     // which uses the original blob), swapped into the DataTexture — no canvas in the upload path.
-    anim.w = g.width; anim.h = g.height; fitAspect(f, g.width / g.height);
+    anim.w = g.width; anim.h = g.height; fitAspect(anim.frame, g.width / g.height);
     anim.frames = g.frames.map(fr => ({ data: flipGifRows(fr.data, g.width, g.height), dur: fr.dur }));
     // Create the DataTexture at its final size (resizing a placeholder texture uploads the first
     // frame into an undersized GPU allocation and renders black). Per-frame updates keep this size.
     const tex = new THREE.DataTexture(anim.frames[0].data, g.width, g.height, THREE.RGBAFormat);
     tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.flipY = false; tex.needsUpdate = true;
-    anim.tex.dispose?.(); anim.tex = tex; f.mat.map = tex; f.mat.needsUpdate = true;
+    anim.tex.dispose?.(); anim.tex = tex; anim.frame.mat.map = tex; anim.frame.mat.needsUpdate = true;
     anim.idx = 0; anim.acc = 0; anim.lastIdx = 0;
     await new Promise(r => setTimeout(r, 0)); // yield between GIFs (setTimeout, not rAF, so the queue never stalls if rAF is throttled)
-  } catch (e) { console.warn('GIF decode failed, using static fallback', e); gifImgFallback(url, anim, f); }
+  } catch (e) { console.warn('GIF decode failed, using static fallback', e); gifImgFallback(url, anim); }
 }
 // Last-resort fallback if manual decode fails: show the GIF via an <img> drawn to a canvas
 // texture. force decode() so it paints without a repaint (iOS defers off-screen image decode).
-function gifImgFallback(url, anim, f) {
+function gifImgFallback(url, anim) {
   if (anim.dead) return;
   const cv = document.createElement('canvas'); cv.width = 2; cv.height = 2; const cx = cv.getContext('2d');
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
   anim.tex.dispose?.(); anim.tex = tex; anim.cv = cv; anim.cx = cx; anim.mode = 'img';
-  f.mat.map = tex; f.mat.needsUpdate = true;
+  anim.frame.mat.map = tex; anim.frame.mat.needsUpdate = true;
   const img = document.createElement('img'); img.src = url; gifHost.appendChild(img);
-  const show = () => { if (anim.dead) return; cv.width = img.naturalWidth || 320; cv.height = img.naturalHeight || 240; fitAspect(f, cv.width / cv.height); };
+  const show = () => { if (anim.dead) return; cv.width = img.naturalWidth || 320; cv.height = img.naturalHeight || 240; fitAspect(anim.frame, cv.width / cv.height); };
   img.decode?.().then(show).catch(() => {}); img.onload = show; anim.img = img;
 }
 // Minimal GIF87a/89a decoder → composited frames as ImageData, downscaled to maxDim, with delays.
