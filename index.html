@@ -293,6 +293,10 @@ const HEADH = 0.28; // height of the black lintel band above a doorway; the room
 // extension grows the two perpendicular walls by exactly one more frame slot apiece (floor((L-1.4)/4.2)
 // gains exactly 1 when L grows by 4.2).
 const EXTEND_STEP = 4.2;
+// A hall that doesn't have room for its full HALLLEN can still be built shortened, docking straight
+// into whatever it runs into instead of refusing outright. MIN_HALL_LEN is the shortest such hall
+// worth building; MIN_DOCK_SPAN is the narrowest doorway worth opening into whatever it docked into.
+const MIN_HALL_LEN = 3.4, MIN_DOCK_SPAN = 1.4;
 // Preset themes: quick-apply bundles of wall color, floor, roughness, metalness, lighting
 const PRESETS = [
   { id: 'classic',  name: 'Classic Hall', wall: 0xd8cdb6, floor: 'wood',     rough: .8,  metal: 0,  light: 0xffe6c0, li: 46, accent: 0xffcf95 },
@@ -439,7 +443,7 @@ function cornerHasDoor(s, side, isLoEnd) {
 }
 function buildWallSide(s, side) {
   const axisIsX = (side === 'N' || side === 'S'); const lo = axisIsX ? s.x0 : s.z0, hi = axisIsX ? s.x1 : s.z1;
-  const inset = (side === s.parentSide && s.sides[side].length > 0) ? T : 0;
+  const inset = (isInsetSide(s, side) && s.sides[side].length > 0) ? T : 0;
   const ops = s.sides[side].slice().sort((p, q) => p[0] - q[0]); let cur = lo;
   // A segment end is "open" (needs jamb-grade clearance) when it borders a doorway on this same
   // wall, OR — when the end sits at the room's true corner — a doorway on the wall meeting it there.
@@ -504,7 +508,7 @@ function rebuildWithCorners(s, side) { rebuildWallSide(s, side); const perp = (s
 // Just the header (wall over the door) for one space's wall. Inset-aware so it lands on the same
 // plane as this space's wall segments. The black portal frame is added separately by buildDoorPortal.
 function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
-  const inset = (side === s.parentSide && (s.sides?.[side]?.length > 0)) ? T : 0;
+  const inset = (isInsetSide(s, side) && (s.sides?.[side]?.length > 0)) ? T : 0;
   // Start the room-colored header above the black lintel band (with a hidden overlap) so its colour
   // never sits behind / z-fights the black frame at the top of the opening.
   const dir = (side === 'N' || side === 'W') ? 1 : -1; const yBot = DOORH + HEADH - 0.05, midY = (yBot + H) / 2, hdrH = H - yBot;
@@ -567,21 +571,58 @@ function applyTheme(s, save = true) {
 }
 function overlaps(x0, x1, z0, z1) { const e = 0.4; for (const s of spaces.values()) if (x0 < s.x1 - e && x1 > s.x0 + e && z0 < s.z1 - e && z1 > s.z0 + e) return true; return false; }
 function overlapsExcept(x0, x1, z0, z1, exceptId) { const e = 0.4; for (const s of spaces.values()) { if (s.id === exceptId) continue; if (x0 < s.x1 - e && x1 > s.x0 + e && z0 < s.z1 - e && z1 > s.z0 + e) return true; } return false; }
+// A space can be inset on more than one of its sides at once — its own side facing back toward its
+// parent (established at creation), PLUS a far side that got docked into an obstruction it ran into
+// (see hallDock below) — so insetSides is a Set rather than the single "parentSide" this replaced.
+function isInsetSide(s, side) { return !!(s.insetSides && s.insetSides.has(side)); }
+function addInsetSide(s, side) { (s.insetSides || (s.insetSides = new Set())).add(side); }
+
+// How far a hall of width W growing from `parent` on `side` (centered at u) can reach before running
+// into another space, so a hall without room for its full HALLLEN can still be built shortened,
+// docking straight into whatever blocks it. Returns the reachable length and the space(s) sitting
+// right at that limit (candidates for a doorway where the shortened hall docks into them).
+function hallDock(parent, side, u, W) {
+  const bandLo = u - W / 2, bandHi = u + W / 2;
+  let len = HALLLEN; const hits = [];
+  for (const s2 of spaces.values()) {
+    if (s2 === parent) continue;
+    const widthLo = (side === 'N' || side === 'S') ? s2.x0 : s2.z0, widthHi = (side === 'N' || side === 'S') ? s2.x1 : s2.z1;
+    if (widthHi <= bandLo + 0.02 || widthLo >= bandHi - 0.02) continue; // s2 doesn't straddle the hall's width band
+    let reach;
+    if (side === 'N') reach = parent.z0 - s2.z1; else if (side === 'S') reach = s2.z0 - parent.z1;
+    else if (side === 'E') reach = s2.x0 - parent.x1; else reach = parent.x0 - s2.x1;
+    if (reach < -0.02 || reach > HALLLEN + 0.02) continue; // behind us, or further away than a full hall anyway
+    reach = Math.max(0, reach);
+    if (reach < len - 0.02) { len = reach; hits.length = 0; hits.push({ s2, widthLo, widthHi }); }
+    else if (Math.abs(reach - len) <= 0.05) hits.push({ s2, widthLo, widthHi });
+  }
+  return { len, hits };
+}
 
 function buildSpaceFrom(type, parent, side, uHit) {
-  const isX = (side === 'N' || side === 'S'); const W = type === 'hall' ? HALLW : RW, L = type === 'hall' ? HALLLEN : RD; const half = type === 'hall' ? HALLW / 2 : DOORW / 2;
+  const isX = (side === 'N' || side === 'S'); const W = type === 'hall' ? HALLW : RW; let L = type === 'hall' ? HALLLEN : RD; const half = type === 'hall' ? HALLW / 2 : DOORW / 2;
   const [lo, hi] = isX ? [parent.x0, parent.x1] : [parent.z0, parent.z1];
   // When the new space is as wide as the wall it grows from (e.g. a hall extending
   // straight off the end of a hall), there's no valid margin — center it on the
   // parent so the two line up into one continuous space instead of shifting sideways.
   const minU = lo + half + 0.4, maxU = hi - half - 0.4;
   const u = minU > maxU ? (lo + hi) / 2 : clamp(uHit, minU, maxU);
-  let x0, x1, z0, z1;
-  if (side === 'N') { z1 = parent.z0; z0 = parent.z0 - L; x0 = u - W / 2; x1 = u + W / 2; }
-  else if (side === 'S') { z0 = parent.z1; z1 = parent.z1 + L; x0 = u - W / 2; x1 = u + W / 2; }
-  else if (side === 'E') { x0 = parent.x1; x1 = parent.x1 + L; z0 = u - W / 2; z1 = u + W / 2; }
-  else { x1 = parent.x0; x0 = parent.x0 - L; z0 = u - W / 2; z1 = u + W / 2; }
-  if (overlaps(x0, x1, z0, z1)) { toast('No room to build there — try another wall or spot'); return; }
+  const boxFor = (len) => { let x0, x1, z0, z1;
+    if (side === 'N') { z1 = parent.z0; z0 = parent.z0 - len; x0 = u - W / 2; x1 = u + W / 2; }
+    else if (side === 'S') { z0 = parent.z1; z1 = parent.z1 + len; x0 = u - W / 2; x1 = u + W / 2; }
+    else if (side === 'E') { x0 = parent.x1; x1 = parent.x1 + len; z0 = u - W / 2; z1 = u + W / 2; }
+    else { x1 = parent.x0; x0 = parent.x0 - len; z0 = u - W / 2; z1 = u + W / 2; }
+    return { x0, x1, z0, z1 }; };
+  let box = boxFor(L), docks = [], shortened = false;
+  if (overlaps(box.x0, box.x1, box.z0, box.z1)) {
+    if (type !== 'hall') { toast('No room to build there — try another wall or spot'); return; }
+    const dock = hallDock(parent, side, u, W);
+    if (dock.len < MIN_HALL_LEN) { toast('No room to build there — try another wall or spot'); return; }
+    L = dock.len; box = boxFor(L);
+    if (overlaps(box.x0, box.x1, box.z0, box.z1)) { toast('No room to build there — try another wall or spot'); return; }
+    docks = dock.hits; shortened = true;
+  }
+  const { x0, x1, z0, z1 } = box;
   GT.stop();
   const cnt = [...spaces.values()].filter(s => s.type === type).length + 1; const name = (type === 'hall' ? 'Hall ' : 'Wing ') + cnt;
   const preset = PRESETS[spaces.size % PRESETS.length];
@@ -589,12 +630,28 @@ function buildSpaceFrom(type, parent, side, uHit) {
   spaces.set(s.id, s); buildSpaceBase(s);
   const [olo, ohi] = [u - half, u + half];
   parent.sides[side].push([olo, ohi]); rebuildWithCorners(parent, side);
-  s.sides[OPP[side]].push([olo, ohi]); s.parentSide = OPP[side];
+  s.sides[OPP[side]].push([olo, ohi]); addInsetSide(s, OPP[side]);
+  // A shortened hall's far wall may dock straight into whatever it ran into — open a doorway there
+  // too (clipped to however much of the hall's width the obstruction actually spans), rather than
+  // leaving it as a plain dead end.
+  let dockedInto = [];
+  for (const h of docks) {
+    const dlo = Math.max(u - W / 2, h.widthLo), dhi = Math.min(u + W / 2, h.widthHi);
+    if (dhi - dlo < MIN_DOCK_SPAN) continue;
+    s.sides[side].push([dlo, dhi]); h.s2.sides[OPP[side]].push([dlo, dhi]);
+    addInsetSide(s, side);
+    dockedInto.push({ s2: h.s2, dlo, dhi });
+  }
   for (const sd of SIDES) buildWallSide(s, sd);
   const conn = { a: parent.id, side, lo: olo, hi: ohi }; conn.doorMeshes = buildConnDoors(conn);
   connections.push(conn);
+  for (const d of dockedInto) {
+    rebuildWithCorners(d.s2, OPP[side]);
+    const dconn = { a: d.s2.id, side: OPP[side], lo: d.dlo, hi: d.dhi }; dconn.doorMeshes = buildConnDoors(dconn);
+    connections.push(dconn);
+  }
   applyTheme(s, false); applyFrameClamps(); saveConfig(); buildWingEditor(); updateCount();
-  toast('New ' + type + ' built — walk through the opening');
+  toast(shortened ? (dockedInto.length ? 'Hall shortened to fit — a doorway opens where it runs into the room' : 'Hall shortened to fit the space available') : 'New ' + type + ' built — walk through the opening');
   pushUndo('build ' + type, () => deleteSpace(s.id, { undo: false }));
 }
 
@@ -649,12 +706,12 @@ async function resizeSpace(s, nb) {
   const oldB = { x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1 };
   const oldIds = new Set(); for (const sd of SIDES) for (const f of s.frames[sd]) oldIds.add(f.id);
   const savedSides = {}; for (const sd of SIDES) savedSides[sd] = (s.sides[sd] || []).map(p => p.slice());
-  const savedParent = s.parentSide;
+  const savedInset = new Set(s.insetSides || []);
   resizingDB = true;                                 // suppress removeFrame's fire-and-forget DB.del
   disposeSpace(s);                                   // removes base meshes + walls + frames (meshes only)
   s.x0 = nb.x0; s.x1 = nb.x1; s.z0 = nb.z0; s.z1 = nb.z1;
   buildSpaceBase(s);                                 // recreates base; resets s.sides / s.walls / s.frames
-  for (const sd of SIDES) s.sides[sd] = savedSides[sd]; s.parentSide = savedParent;
+  for (const sd of SIDES) s.sides[sd] = savedSides[sd]; s.insetSides = savedInset;
   for (const sd of SIDES) buildWallSide(s, sd);
   resizingDB = false;
   // Re-hang media onto the relaid frames by TRANSFERRING the live textures/animations (no re-decode),
@@ -872,7 +929,7 @@ async function deleteSpace(id, opts = {}) {
 }
 function rebuildSpace(snap) {
   const s = { ...snap.s }; spaces.set(s.id, s); buildSpaceBase(s);
-  for (const c of snap.conns) { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const A = spaces.get(c.a); if (A) A.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb && spaces.get(nb)) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); spaces.get(nb).parentSide = OPP[c.side]; } }
+  for (const c of snap.conns) { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const A = spaces.get(c.a); if (A) A.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb && spaces.get(nb)) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); addInsetSide(spaces.get(nb), OPP[c.side]); } }
   for (const sd of SIDES) buildWallSide(s, sd);
   const done = new Set();
   for (const c of snap.conns) { const nbId = (c.a === s.id) ? spaceOnOtherSide(c) : c.a; const nbSide = (c.a === s.id) ? OPP[c.side] : c.side; const key = nbId + nbSide; if (spaces.get(nbId) && !done.has(key)) { rebuildWithCorners(spaces.get(nbId), nbSide); done.add(key); } }
@@ -1218,7 +1275,7 @@ function buildFromConfig(cfg) {
   });
   nextId = cfg.nextId || spaces.size;
   spaces.forEach(buildSpaceBase);
-  (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); spaces.get(nb).parentSide = OPP[c.side]; } });
+  (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); addInsetSide(spaces.get(nb), OPP[c.side]); } });
   spaces.forEach(s => { for (const sd of SIDES) buildWallSide(s, sd); });
   connections.forEach(c => { c.doorMeshes = buildConnDoors(c); });
   spaces.forEach(s => applyTheme(s, false));
