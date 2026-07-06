@@ -46,6 +46,9 @@
   .switch { position: relative; width: 44px; height: 26px; } .switch input { display: none; } .switch span { position: absolute; inset: 0; background: #3a3a46; border-radius: 999px; transition: .2s; cursor: pointer; } .switch span::after { content:""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: .2s; }
   .switch input:checked + span { background: #ffc24d; } .switch input:checked + span::after { transform: translateX(18px); } input[type=range] { width: 100%; accent-color: #ffc24d; } #count { font-size: 12.5px; color: #9a9aa6; }
   .wing { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 9px; display: flex; flex-direction: column; gap: 6px; }
+  .wing.current { border-color: #ffc24d; background: rgba(255,194,77,.09); box-shadow: 0 0 0 1px rgba(255,194,77,.35) inset; }
+  .wing .whereami { display: none; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: #ffd27a; }
+  .wing.current .whereami { display: inline; }
   .wing .wtop { display: flex; gap: 6px; align-items: center; } .wing .kind { font-size: 10px; padding: 2px 6px; border-radius: 5px; background: rgba(255,210,122,.18); color: #ffd27a; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
   .wing input.wname { flex: 1; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px 8px; font: 600 13px inherit; min-width: 0; }
   .wing select { background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px; font: 500 12.5px inherit; flex: 1; }
@@ -1125,7 +1128,19 @@ addEventListener('drop', async (e) => { e.preventDefault(); dragDepth = 0; dropE
 
 /* ===== export / import / save / share ===== */
 const blobToDataURL = (b) => new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(b); });
-async function exportGallery() { toast('Packing your museum…'); const recs = await DB.all(); const out = []; for (const r of recs) { if (r.blob) out.push({ frame: r.frame, type: r.type, title: r.title || '', mime: r.blob.type, data: await blobToDataURL(r.blob) }); else out.push({ frame: r.frame, config: r.config }); } const json = JSON.stringify({ app: 'my-museum', version: 5, records: out }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = 'my-museum.museum'; a.click(); toast(`Exported ${out.length} item${out.length !== 1 ? 's' : ''} (incl. media + music)`); }
+// Strip characters that are invalid (or awkward) in a filename across OSes, and make sure it ends in
+// .museum so double-clicking it later still offers to import it back in.
+function museumFileName(input) {
+  let name = (input || '').trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\.museum$/i, '').trim();
+  if (!name) name = 'my-museum';
+  return name + '.museum';
+}
+async function exportGallery() {
+  const typed = prompt('Name this export file:', 'my-museum');
+  if (typed === null) return; // cancelled
+  const filename = museumFileName(typed);
+  toast('Packing your museum…');
+  const recs = await DB.all(); const out = []; for (const r of recs) { if (r.blob) out.push({ frame: r.frame, type: r.type, title: r.title || '', mime: r.blob.type, data: await blobToDataURL(r.blob) }); else out.push({ frame: r.frame, config: r.config }); } const json = JSON.stringify({ app: 'my-museum', version: 5, records: out }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = filename; a.click(); toast(`Exported ${out.length} item${out.length !== 1 ? 's' : ''} (incl. media + music)`); }
 document.getElementById('importFile').addEventListener('change', async (e) => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; try { const data = JSON.parse(await file.text()); const recs = data.records || data.items; if (!recs) throw 0; toast('Importing…'); for (const it of recs) { if (it.config) { await DB.put({ frame: it.frame, config: it.config }); continue; } const blob = await (await fetch(it.data)).blob(); await DB.put({ frame: it.frame, type: it.type, blob, title: it.title || '' }); } location.hash = ''; setTimeout(() => location.reload(), 400); } catch { toast('Could not read that file'); } });
 async function saveGallery() { for (const f of frames) if (f.filled) { const rec = await DB.get(f.id); if (rec) { rec.title = f.title; await DB.put(rec); } } await saveConfig(); toast('Saved to this browser'); }
 function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
@@ -1198,8 +1213,8 @@ function buildWingEditor() {
     const patOpts = [['smooth', 'Smooth'], ['brick', 'Brick']].map(([v, n]) => `<option value="${v}"${s.wallPattern === v ? ' selected' : ''}>${n}</option>`).join('');
     const hasMusic = !!Music.tracks[s.id];
     const LBL = 'font-size:11px;color:#7a7a86;margin:8px 0 2px;text-transform:uppercase;letter-spacing:1.5px';
-    const el = document.createElement('div'); el.className = 'wing';
-    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"></div>`
+    const el = document.createElement('div'); el.className = 'wing' + (s.id === currentId() ? ' current' : ''); el.dataset.id = s.id;
+    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"><span class="whereami">📍 Here</span></div>`
       + `<div style="${LBL};margin-top:2px">Preset themes</div><select class="wpreset">${presetOpts}</select>`
       + `<div style="${LBL}">Floor design</div><select class="wfloor">${floorOpts}</select>`
       + `<div style="${LBL}">Floor tint (custom)</div><div class="pickrow"><input type="color" class="wfloorpick" value="${hex(s.floorTint)}"><input class="hex wfloorhex" value="${hex(s.floorTint)}" spellcheck="false" maxlength="7"></div>`
@@ -1227,6 +1242,13 @@ function buildWingEditor() {
     el.querySelector('[data-musx]')?.addEventListener('click', () => Music.clearTrack(s.id));
     el.querySelector('[data-del]').onclick = () => deleteSpace(s.id, { undo: true, confirm: true });
     host.appendChild(el); });
+}
+// Cheap per-frame sync of which room/hall/wing entry is marked "here" in the menu — just toggles a
+// class on the existing rows rather than rebuilding the whole editor (buildWingEditor rebuilds every
+// input + listener, far too costly to run on every room change).
+function updateWingHighlight() {
+  const cur = currentId();
+  document.querySelectorAll('#wings .wing').forEach(el => el.classList.toggle('current', el.dataset.id === cur));
 }
 function openOverview() {
   const grid = document.getElementById('ogrid'); grid.innerHTML = '';
@@ -1278,7 +1300,7 @@ function updateGifs(dt) { if (!gifAnims.length) return; camera.updateMatrixWorld
   for (const a of gifAnims) { const p = a.frame.group.position; const inView = camera.position.distanceTo(p) < GIF_VIEW_DIST && gifFrustum.containsPoint(p); updateGif(a, dt, inView); } }
 function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.05); camera.rotation.set(pitch, yaw, 0);
   if (inTour && !paused && !lightboxOpen && !ctxOpen) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight'] || touchRun) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
-    camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); } }
+    camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); updateWingHighlight(); } }
   if (++mapTick % 3 === 0 && (inTour || paused)) drawMap();
   updateGifs(dt);
   (composer || renderer).render(scene, camera);
