@@ -50,6 +50,10 @@
   .wing input.wname { flex: 1; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px 8px; font: 600 13px inherit; min-width: 0; }
   .wing select { background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px; font: 500 12.5px inherit; flex: 1; }
   .wing .wbtns { display: flex; gap: 6px; } .wing .wbtns button { flex: 1; cursor: pointer; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #dcdce4; font: 600 12px inherit; padding: 7px; border-radius: 7px; } .wing .wbtns button:hover { background: rgba(255,255,255,.14); } .wing .wbtns button.has { border-color: #ffc24d55; color: #ffd27a; } .wing .wbtns button.del { border-color: #ff6b6b55; color: #ff9a9a; } .wing .wbtns button.del:hover { background: rgba(255,107,107,.16); }
+  .wing .pickrow { display: flex; gap: 6px; align-items: center; }
+  .wing input[type=color] { -webkit-appearance: none; appearance: none; width: 42px; height: 32px; padding: 0; border: 1px solid rgba(255,255,255,.18); border-radius: 7px; background: transparent; cursor: pointer; flex: none; }
+  .wing input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; } .wing input[type=color]::-webkit-color-swatch { border: none; border-radius: 5px; } .wing input[type=color]::-moz-color-swatch { border: none; border-radius: 5px; }
+  .wing input.hex { flex: 1; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px 8px; font: 600 12.5px ui-monospace, Menlo, Consolas, monospace; min-width: 0; text-transform: lowercase; }
   #menu button.item:disabled { opacity: .5; cursor: default; }
   #overview { position: fixed; inset: 0; z-index: 28; background: rgba(7,7,11,.94); backdrop-filter: blur(6px); display: none; flex-direction: column; padding: 22px; } #overview.open { display: flex; }
   #overview .ohead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; } #overview h2 { font-size: 22px; } #overview h2 .accent { color: #ffd27a; }
@@ -62,6 +66,7 @@
   #joy { position: absolute; left: 30px; bottom: 30px; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,.06); border: 2px solid rgba(255,255,255,.18); }
   #knob { position: absolute; left: 50%; top: 50%; width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%; background: rgba(255,255,255,.5); border: 2px solid rgba(255,255,255,.7); }
   #useBtn { position: absolute; right: 34px; bottom: 64px; width: 84px; height: 84px; border-radius: 50%; border: 2px solid rgba(255,210,122,.8); background: rgba(255,210,122,.18); color: #ffe6b0; font: 700 16px inherit; letter-spacing: 1px; } #useBtn:active { background: rgba(255,210,122,.4); }
+  #runBtn { position: absolute; right: 40px; bottom: 162px; width: 72px; height: 54px; border-radius: 14px; border: 2px solid rgba(180,210,255,.7); background: rgba(120,150,255,.18); color: #cfe0ff; font: 700 13px inherit; letter-spacing: 1px; } #runBtn:active { background: rgba(120,150,255,.4); } #runBtn.on { border-color: #b6f0c4; background: rgba(120,240,160,.34); color: #d6ffe4; }
   #toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%) translateY(20px); background: rgba(20,20,26,.96); border: 1px solid rgba(255,255,255,.12); color: #f0f0f4; padding: 11px 18px; border-radius: 10px; font-size: 14px; z-index: 32; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: 80vw; text-align: center; } #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
   #drop { position: fixed; inset: 0; z-index: 18; pointer-events: none; display: grid; place-items: center; background: rgba(255,210,122,.10); border: 3px dashed rgba(255,210,122,.7); opacity: 0; transition: opacity .15s; } #drop.show { opacity: 1; } #drop span { background: rgba(12,12,16,.9); color: #ffd27a; padding: 14px 22px; border-radius: 12px; font-size: 16px; font-weight: 600; }
   /* Lightbox — closer view of a piece */
@@ -88,6 +93,9 @@
   .ctxbtn { appearance: none; cursor: pointer; text-align: left; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color: #ececf2; font: 600 14px inherit; padding: 12px 14px; border-radius: 10px; } .ctxbtn:hover { background: rgba(255,255,255,.14); } .ctxbtn.accent { background: linear-gradient(180deg,#ffd98a,#ffc24d); color: #2a1c00; border-color: transparent; } .ctxbtn.warn { border-color: #ff6b6b55; color: #ff9a9a; }
   .ctxrow { display: flex; flex-wrap: wrap; gap: 7px; }
   .ctxswatch { cursor: pointer; border: 2px solid rgba(255,255,255,.16); border-radius: 9px; min-width: 38px; height: 38px; padding: 0 4px; font: 600 12px inherit; color: #ececf2; background: rgba(255,255,255,.06); } .ctxswatch.on { border-color: #ffc24d; box-shadow: 0 0 0 2px rgba(255,194,77,.35); } .ctxswatch.tex { min-width: 74px; height: 34px; }
+  .ctxcolor { -webkit-appearance: none; appearance: none; width: 46px; height: 38px; padding: 0; border: 2px solid rgba(255,255,255,.16); border-radius: 9px; background: transparent; cursor: pointer; flex: none; }
+  .ctxcolor::-webkit-color-swatch-wrapper { padding: 2px; } .ctxcolor::-webkit-color-swatch { border: none; border-radius: 6px; } .ctxcolor::-moz-color-swatch { border: none; border-radius: 6px; }
+  .ctxcode { flex: 1; min-width: 100px; background: rgba(0,0,0,.3); border: 2px solid rgba(255,255,255,.16); border-radius: 9px; color: #ececf2; font: 600 13px ui-monospace, Menlo, Consolas, monospace; padding: 0 10px; text-transform: lowercase; }
   #ctxcancel { cursor: pointer; margin-top: 6px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #cfcfd8; font: 600 14px inherit; padding: 11px; border-radius: 10px; } #ctxcancel:hover { background: rgba(255,255,255,.12); }
 </style>
 <script type="importmap">
@@ -145,7 +153,7 @@
     <div class="grp"><button class="item" data-act="exit">⤿ Exit to start screen</button></div>
   </div>
   <div id="overview"><div class="ohead"><h2>All <span class="accent">rooms</span></h2><button class="oclose" id="ovClose">Close ✕</button></div><div id="ogrid"></div></div>
-  <div id="touch"><div id="joy"><div id="knob"></div></div><button id="useBtn">USE</button></div>
+  <div id="touch"><div id="joy"><div id="knob"></div></div><button id="runBtn">▶▶ RUN</button><button id="useBtn">USE</button></div>
   <div id="drop"><span>Drop photos &amp; videos to hang them</span></div>
   <div id="overlay">
     <div class="card">
@@ -247,6 +255,35 @@ function floorTexFor(k, s) { const w = s.x1 - s.x0, d = s.z1 - s.z0; const t = g
 const FLOOR_MAT = { wood: { rough: 0.82, metal: 0 }, marble: { rough: 0.55, metal: 0 }, tile: { rough: 0.6, metal: 0 }, dark: { rough: 0.5, metal: 0 }, concrete: { rough: 0.9, metal: 0 } };
 const floorMatFor = (k) => FLOOR_MAT[k] || FLOOR_MAT.wood;
 
+// ===== Brick wall pattern =====
+// A tileable brick texture kept near-white with darker mortar so it TINTS to whatever wall colour
+// is chosen (the wall material's color multiplies the map): white bricks -> the chosen colour, grey
+// mortar -> a darker shade of it. UVs are baked in world space (bakeWallUV) so courses line up
+// across adjacent wall segments and continue above doorways.
+const BRICKTILE = 1.7; // world units spanned by one 512² brick tile (≈8 courses of ~0.21m brick)
+const brickTex = mkTex((x, s) => {
+  const rows = 8, bh = s / rows, cols = 4, bw = s / cols, m = Math.max(3, s * 0.012);
+  x.fillStyle = '#8c8c8c'; x.fillRect(0, 0, s, s);                       // mortar
+  for (let r = 0; r < rows; r++) {
+    const y = r * bh, shift = (r % 2) ? bw / 2 : 0;                       // running bond: offset alternate courses
+    for (let c = -1; c <= cols; c++) {
+      const bx = c * bw + shift, v = Math.random() * 22 - 11;
+      x.fillStyle = `rgb(${238 + v},${236 + v},${232 + v})`;
+      x.fillRect(bx + m / 2, y + m / 2, bw - m, bh - m);
+    }
+  }
+}, 1, 1);
+// Project a wall box's UVs into world space so one brick tile = BRICKTILE world units and courses
+// align everywhere. Harmless for smooth (untextured) walls, so it's applied to every wall box.
+function bakeWallUV(mesh, axisIsX) {
+  const geo = mesh.geometry, pos = geo.attributes.position, uv = geo.attributes.uv, mp = mesh.position;
+  for (let i = 0; i < pos.count; i++) {
+    const h = axisIsX ? mp.x + pos.getX(i) : mp.z + pos.getZ(i), vv = mp.y + pos.getY(i);
+    uv.setXY(i, h / BRICKTILE, vv / BRICKTILE);
+  }
+  uv.needsUpdate = true;
+}
+
 /* ===== Constants / styles ===== */
 // HALLLEN is kept a bit longer than a wing's footprint along the hall (RW) so a wing fits within
 // one hall segment's side wall, and wings on two adjacent hall segments don't clip into each other.
@@ -277,7 +314,7 @@ const YAWFOR = { N: 0, S: Math.PI, E: -Math.PI / 2, W: Math.PI / 2 };
 /* ===== collider-aware box ===== */
 const colliders = [];
 function box(cx, cy, cz, sx, sy, sz, mat, solid = true) { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat); m.position.set(cx, cy, cz); scene.add(m); if (solid) { const b = new THREE.Box3().setFromObject(m); m.userData.collider = b; colliders.push(b); } return m; }
-function removeBox(m) { if (!m) return; scene.remove(m); const b = m.userData.collider; if (b) { const i = colliders.indexOf(b); if (i >= 0) colliders.splice(i, 1); } m.geometry?.dispose?.(); }
+function removeBox(m) { if (!m) return; scene.remove(m); const b = m.userData.collider; if (b) { const i = colliders.indexOf(b); if (i >= 0) colliders.splice(i, 1); } const wi = wallMeshes.indexOf(m); if (wi >= 0) wallMeshes.splice(wi, 1); m.geometry?.dispose?.(); }
 const baseMat = new THREE.MeshStandardMaterial({ color: 0x201f1d, roughness: .85 });
 const stripMat = new THREE.MeshStandardMaterial({ color: 0xfff4dc, emissive: 0xfff0d0, emissiveIntensity: 1.1 });
 const doorTrimMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: .7, metalness: .2 });
@@ -288,6 +325,8 @@ const ceilMat = new THREE.MeshStandardMaterial({ color: 0x101018, roughness: 1 }
 
 /* ===== frame + heading helpers ===== */
 function hex(c) { return '#' + (c >>> 0).toString(16).padStart(6, '0').slice(-6); }
+// Normalise a user-typed hex ("d8cdb6", "#D8CDB6") to "#d8cdb6", or null if it isn't a valid 6-digit hex.
+function normHex(v) { v = (v || '').trim(); if (v[0] !== '#') v = '#' + v; return /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : null; }
 // Wall-section heading: a large title above the media. Uses a dark outline + shadow so the
 // accent-coloured text stays legible against both bright and dark gallery walls.
 function makeHeadingTex(label, accent) { const W = 2048, Hc = 512, maxW = W - 160; const c = document.createElement('canvas'); c.width = W; c.height = Hc; const x = c.getContext('2d'); x.clearRect(0, 0, W, Hc); const txt = (label || '').toUpperCase(); x.textAlign = 'center'; x.textBaseline = 'middle'; let fs = 300; x.font = `700 ${fs}px Georgia, serif`; const tw = x.measureText(txt).width; if (tw > maxW) { fs = Math.max(70, Math.floor(fs * maxW / tw)); x.font = `700 ${fs}px Georgia, serif`; } x.lineJoin = 'round'; x.lineWidth = Math.max(10, fs * 0.1); x.strokeStyle = 'rgba(8,7,4,.72)'; x.strokeText(txt, W / 2, Hc / 2 + 6); x.shadowColor = 'rgba(0,0,0,.5)'; x.shadowBlur = 18; x.shadowOffsetY = 5; x.fillStyle = hex(accent); x.fillText(txt, W / 2, Hc / 2 + 6); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; }
@@ -338,10 +377,12 @@ function updateSectionTitles(s) {
 // (and its floor stops reading as glossy from the over-bright specular highlight).
 function spaceLightIntensity(s) { const area = (s.x1 - s.x0) * (s.z1 - s.z0); return s.lightIntensity * clamp(area / (RW * RD), 0.45, 1.1); }
 function buildSpaceBase(s) {
+  if (s.wallPattern == null) s.wallPattern = 'smooth';           // 'smooth' | 'brick'
+  if (s.floorTint == null) s.floorTint = 0xffffff;               // white = untinted floor
   const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, w = s.x1 - s.x0, d = s.z1 - s.z0;
   s.cx = cx; s.cz = cz; s.wallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: 0.9 });
   const fm = floorMatFor(s.floorType);
-  s.floorMat = new THREE.MeshStandardMaterial({ map: floorTexFor(s.floorType, s), roughness: fm.rough, metalness: fm.metal });
+  s.floorMat = new THREE.MeshStandardMaterial({ map: floorTexFor(s.floorType, s), color: (s.floorTint != null ? s.floorTint : 0xffffff), roughness: fm.rough, metalness: fm.metal });
   const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), s.floorMat); fl.rotation.x = -Math.PI / 2; fl.position.set(cx, 0, cz); fl.userData.floorId = s.id; scene.add(fl); s.floor = fl;
   s.ceil = box(cx, H, cz, w, 0.3, d, ceilMat, false);
   const long = Math.max(w, d); s.strip = box(cx, H - 0.18, cz, w >= d ? long * .8 : 0.6, 0.12, w >= d ? 0.6 : long * .8, stripMat, false);
@@ -363,6 +404,7 @@ function wallSeg(s, side, a, b, inset, startOpen, endOpen) { // solid wall segme
   const mat = s.wallMat; const dir = (side === 'N' || side === 'W') ? 1 : -1; let mesh, wp;
   if (side === 'N' || side === 'S') { wp = (side === 'N' ? s.z0 : s.z1) + dir * inset; mesh = box((a + b) / 2, H / 2, wp, b - a, H, T, mat); }
   else { wp = (side === 'E' ? s.x1 : s.x0) + dir * inset; mesh = box(wp, H / 2, (a + b) / 2, T, H, b - a, mat); }
+  bakeWallUV(mesh, side === 'N' || side === 'S');
   mesh.userData.add = { id: s.id, side }; wallMeshes.push(mesh); s.walls[side].push(mesh);
   const bb = (side === 'N' || side === 'S') ? box((a + b) / 2, 0.12, wp + dir * (T / 2 + 0.03), b - a, 0.24, 0.06, baseMat, false) : box(wp + dir * (T / 2 + 0.03), 0.12, (a + b) / 2, 0.06, 0.24, b - a, baseMat, false); mesh.userData.bb = bb;
   const len = b - a, margin = 0.7, usable = len - 2 * margin; if (usable < 1.3) return;
@@ -466,8 +508,15 @@ function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
   // Start the room-colored header above the black lintel band (with a hidden overlap) so its colour
   // never sits behind / z-fights the black frame at the top of the opening.
   const dir = (side === 'N' || side === 'W') ? 1 : -1; const yBot = DOORH + HEADH - 0.05, midY = (yBot + H) / 2, hdrH = H - yBot;
-  if (side === 'N' || side === 'S') { const z = (side === 'N' ? s.z0 : s.z1) + dir * inset; return [box((lo + hi) / 2, midY, z, hi - lo, hdrH, T, mat, false)]; }
-  const x = (side === 'E' ? s.x1 : s.x0) + dir * inset; return [box(x, midY, (lo + hi) / 2, T, hdrH, hi - lo, mat, false)];
+  let hdr;
+  if (side === 'N' || side === 'S') { const z = (side === 'N' ? s.z0 : s.z1) + dir * inset; hdr = box((lo + hi) / 2, midY, z, hi - lo, hdrH, T, mat, false); }
+  else { const x = (side === 'E' ? s.x1 : s.x0) + dir * inset; hdr = box(x, midY, (lo + hi) / 2, T, hdrH, hi - lo, mat, false); }
+  // The wall above a door belongs to this space's wall, so make it raycast-selectable (tagged to
+  // this space) — otherwise the in-world colour picker can't hit it and it never retints when you
+  // recolour the room. removeBox() drops it from wallMeshes when the doorway is torn down.
+  bakeWallUV(hdr, side === 'N' || side === 'S');
+  hdr.userData.add = { id: s.id, side }; wallMeshes.push(hdr);
+  return [hdr];
 }
 // A bold black portal frame around the whole opening — two chunky vertical jambs + a head — set at
 // the boundary between the two spaces and protruding into both rooms. The jambs are wider than a
@@ -499,7 +548,12 @@ function buildConnDoors(c) { if (isSeamlessConn(c)) return []; const a = spaces.
 function applyTheme(s, save = true) {
   const fm = floorMatFor(s.floorType);
   s.wallMat.color.set(s.wallColor);
+  // Brick pattern tints via the wall colour; a touch rougher so bricks don't look glossy.
+  s.wallMat.map = (s.wallPattern === 'brick') ? brickTex : null;
+  s.wallMat.roughness = (s.wallPattern === 'brick') ? 0.98 : 0.9;
+  s.wallMat.needsUpdate = true;
   s.floorMat.map = floorTexFor(s.floorType, s);
+  s.floorMat.color.set(s.floorTint != null ? s.floorTint : 0xffffff);   // custom floor tint (white = untinted)
   s.floorMat.roughness = fm.rough;
   s.floorMat.metalness = fm.metal;
   s.floorMat.needsUpdate = true;
@@ -830,7 +884,7 @@ function rebuildSpace(snap) {
 const updateCount = () => document.getElementById('count').textContent = `${frames.filter(f => f.filled).length} / ${frames.length} filled`;
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
-const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
+const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
 
 /* ===== sample art ===== */
 function drawSample(g, w, h, k) { const pals = [['#ff9a4d', '#ffd86b'], ['#4d79ff', '#9b6bff'], ['#0f2027', '#2c5364'], ['#34d399', '#a7f3d0'], ['#f472b6', '#c084fc'], ['#0ea5e9', '#2dd4bf']][k % 6]; const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, pals[0]); grad.addColorStop(1, pals[1]); g.fillStyle = grad; g.fillRect(0, 0, w, h); g.globalAlpha = .18; for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#000000'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, 0, 7); g.fill(); } g.globalAlpha = 1; if (k === 5) { g.fillStyle = 'rgba(0,0,0,.32)'; g.fillRect(w * .12, h * .34, w * .76, h * .32); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 60px Georgia, serif'; g.fillText('Your Museum', w / 2, h * .47); g.font = '400 26px system-ui'; g.fillText('face a wall & click to build', w / 2, h * .57); } else { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 8; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, Math.random() * h); g.bezierCurveTo(w * .3, Math.random() * h, w * .6, Math.random() * h, w, Math.random() * h); g.stroke(); } } }
@@ -852,12 +906,25 @@ canvas.addEventListener('mousedown', (e) => { if (document.pointerLockElement ==
 /* touch */
 const joyEl = document.getElementById('joy'), knob = document.getElementById('knob'); let joyId = null, joyX = 0, joyY = 0; const joyR = 55; let lookId = null, lastLX = 0, lastLY = 0;
 const joyCenter = () => { const r = joyEl.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
-addEventListener('touchstart', (e) => { if (!inTour || lightboxOpen || ctxOpen) return; for (const t of e.changedTouches) { const c = joyCenter(); if (joyId === null && Math.hypot(t.clientX - c.x, t.clientY - c.y) < 110) { joyId = t.identifier; updJoy(t, c); if (GT.active) GT.stop(); } else if (lookId === null) { lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
+addEventListener('touchstart', (e) => { if (!inTour || lightboxOpen || ctxOpen) return; for (const t of e.changedTouches) { const c = joyCenter(); if (joyId === null && Math.hypot(t.clientX - c.x, t.clientY - c.y) < 110) { joyId = t.identifier; updJoy(t, c); if (GT.active) GT.stop(); } else if (lookId === null && !(t.target && t.target.closest && t.target.closest('button'))) { lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
 addEventListener('touchmove', (e) => { if (lightboxOpen || ctxOpen) return; for (const t of e.changedTouches) { if (t.identifier === joyId) { e.preventDefault(); updJoy(t, joyCenter()); } else if (t.identifier === lookId) { if (GT.active) GT.stop(); yaw -= (t.clientX - lastLX) * 0.005; pitch = Math.max(-1.45, Math.min(1.45, pitch - (t.clientY - lastLY) * 0.005)); lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
 function endTouch(e) { for (const t of e.changedTouches) { if (t.identifier === joyId) { joyId = null; joyX = joyY = 0; knob.style.transform = 'translate(0,0)'; } if (t.identifier === lookId) lookId = null; } }
 addEventListener('touchend', endTouch); addEventListener('touchcancel', endTouch);
 function updJoy(t, c) { let dx = t.clientX - c.x, dy = t.clientY - c.y; const d = Math.hypot(dx, dy); if (d > joyR) { dx *= joyR / d; dy *= joyR / d; } knob.style.transform = `translate(${dx}px,${dy}px)`; joyX = dx / joyR; joyY = dy / joyR; }
-document.getElementById('useBtn').addEventListener('click', interact);
+// Fire a HUD button on touchstart (not click): mobile browsers don't synthesize a click for a
+// second-finger tap while another finger is already down (e.g. on the joystick), so a plain click
+// handler silently drops RUN/USE taps made WHILE MOVING. touchstart fires per finger every time.
+// preventDefault suppresses the ghost click; stopPropagation keeps this touch out of the joystick/
+// look tracker. A click fallback covers non-touch (desktop) use.
+function hudPress(el, fn) {
+  el.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); fn(); }, { passive: false });
+  el.addEventListener('click', fn);
+}
+hudPress(document.getElementById('useBtn'), interact);
+// Mobile "run" toggle — lets touch users move at the same faster pace desktop gets by holding Shift.
+let touchRun = false;
+const runBtnEl = document.getElementById('runBtn');
+hudPress(runBtnEl, () => { touchRun = !touchRun; runBtnEl.classList.toggle('on', touchRun); });
 
 /* ===== look + interact ===== */
 const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null, lookingFloor = null;
@@ -923,6 +990,18 @@ function ctxAddSwatches(parent, label, items, isTex, onPick) {
     row.appendChild(b); });
   parent.appendChild(row);
 }
+// A native colour picker plus an editable hex field (shows the code for easy copy/paste). onPick is
+// called with (colorInt, commit): commit=false while dragging (live preview, no save), true on release.
+function ctxAddColorPicker(parent, label, current, onPick) {
+  const lbl = document.createElement('div'); lbl.className = 'ctxlbl'; lbl.textContent = label; parent.appendChild(lbl);
+  const row = document.createElement('div'); row.className = 'ctxrow';
+  const inp = document.createElement('input'); inp.type = 'color'; inp.className = 'ctxcolor'; inp.value = hex(current);
+  const code = document.createElement('input'); code.type = 'text'; code.className = 'ctxcode'; code.value = hex(current); code.spellcheck = false; code.maxLength = 7;
+  const fromInp = (commit) => { code.value = inp.value; onPick(parseInt(inp.value.slice(1), 16), commit); };
+  inp.oninput = () => fromInp(false); inp.onchange = () => fromInp(true);
+  code.onchange = () => { const v = normHex(code.value); if (v) { inp.value = v; code.value = v; onPick(parseInt(v.slice(1), 16), true); } else code.value = inp.value; };
+  row.append(inp, code); parent.appendChild(row);
+}
 function openCtxMenu(kind, target) {
   const s = spaces.get(target.id); if (!s) return;
   ctxTarget = { kind, id: target.id, side: target.side, u: target.u };
@@ -937,7 +1016,10 @@ function openCtxMenu(kind, target) {
     if (has) ctxAddBtn(optsEl, '⌫ Remove heading', 'warn', () => { setWallHeading({ id: target.id, side: target.side }, ''); closeCtxMenu(); toast('Heading removed'); });
   } else {
     ctxAddSwatches(optsEl, 'Floor design', FLOOR_TYPES.map(t => ({ label: t.name, value: t.value, on: t.value === s.floorType })), true, (t) => { s.floorType = t.value; applyTheme(s); buildWingEditor(); });
+    ctxAddColorPicker(optsEl, 'Floor tint (custom)', s.floorTint != null ? s.floorTint : 0xffffff, (v, commit) => { s.floorTint = v; applyTheme(s, commit); if (commit) buildWingEditor(); });
+    ctxAddSwatches(optsEl, 'Wall pattern', [{ label: 'Smooth', value: 'smooth' }, { label: 'Brick', value: 'brick' }].map(p => ({ label: p.label, value: p.value, on: p.value === s.wallPattern })), true, (p) => { s.wallPattern = p.value; applyTheme(s); buildWingEditor(); });
     ctxAddSwatches(optsEl, 'Wall colour', WALL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === s.wallColor })), false, (c) => { s.wallColor = c.value; applyTheme(s); buildWingEditor(); });
+    ctxAddColorPicker(optsEl, 'Wall colour (custom)', s.wallColor, (v, commit) => { s.wallColor = v; applyTheme(s, commit); if (commit) buildWingEditor(); });
   }
   ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
   if (document.pointerLockElement) document.exitPointerLock();
@@ -960,7 +1042,7 @@ const blobToDataURL = (b) => new Promise((ok) => { const r = new FileReader(); r
 async function exportGallery() { toast('Packing your museum…'); const recs = await DB.all(); const out = []; for (const r of recs) { if (r.blob) out.push({ frame: r.frame, type: r.type, title: r.title || '', mime: r.blob.type, data: await blobToDataURL(r.blob) }); else out.push({ frame: r.frame, config: r.config }); } const json = JSON.stringify({ app: 'my-museum', version: 5, records: out }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = 'my-museum.museum'; a.click(); toast(`Exported ${out.length} item${out.length !== 1 ? 's' : ''} (incl. media + music)`); }
 document.getElementById('importFile').addEventListener('change', async (e) => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; try { const data = JSON.parse(await file.text()); const recs = data.records || data.items; if (!recs) throw 0; toast('Importing…'); for (const it of recs) { if (it.config) { await DB.put({ frame: it.frame, config: it.config }); continue; } const blob = await (await fetch(it.data)).blob(); await DB.put({ frame: it.frame, type: it.type, blob, title: it.title || '' }); } location.hash = ''; setTimeout(() => location.reload(), 400); } catch { toast('Could not read that file'); } });
 async function saveGallery() { for (const f of frames) if (f.filled) { const rec = await DB.get(f.id); if (rec) { rec.title = f.title; await DB.put(rec); } } await saveConfig(); toast('Saved to this browser'); }
-function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
+function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
 function readShare() { const m = location.hash.match(/m=([^&]+)/); if (!m) return null; try { return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); } catch { return null; } }
 
 /* ===== music ===== */
@@ -1027,13 +1109,33 @@ function buildWingEditor() {
     const presetOpts = PRESETS.map(o => `<option value="${o.id}"${o.floor === s.floorType && o.wall === s.wallColor ? ' selected' : ''}>${o.name}</option>`).join('');
     const floorOpts = FLOOR_TYPES.map(o => `<option value="${o.value}"${o.value === s.floorType ? ' selected' : ''}>${o.name}</option>`).join('');
     const wallOpts = WALL_COLORS.map(o => `<option value="${o.value}"${o.value === s.wallColor ? ' selected' : ''}>${o.name}</option>`).join('');
+    const patOpts = [['smooth', 'Smooth'], ['brick', 'Brick']].map(([v, n]) => `<option value="${v}"${s.wallPattern === v ? ' selected' : ''}>${n}</option>`).join('');
     const hasMusic = !!Music.tracks[s.id];
+    const LBL = 'font-size:11px;color:#7a7a86;margin:8px 0 2px;text-transform:uppercase;letter-spacing:1.5px';
     const el = document.createElement('div'); el.className = 'wing';
-    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"></div><div style="font-size:11px;color:#7a7a86;margin-bottom:2px;text-transform:uppercase;letter-spacing:1.5px">Preset themes</div><select class="wpreset">${presetOpts}</select><div style="font-size:11px;color:#7a7a86;margin:8px 0 2px;text-transform:uppercase;letter-spacing:1.5px">Floor design</div><select class="wfloor">${floorOpts}</select><div style="font-size:11px;color:#7a7a86;margin:8px 0 2px;text-transform:uppercase;letter-spacing:1.5px">Wall color</div><select class="wwall">${wallOpts}</select><div class="wbtns" style="margin-top:9px"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
+    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"></div>`
+      + `<div style="${LBL};margin-top:2px">Preset themes</div><select class="wpreset">${presetOpts}</select>`
+      + `<div style="${LBL}">Floor design</div><select class="wfloor">${floorOpts}</select>`
+      + `<div style="${LBL}">Floor tint (custom)</div><div class="pickrow"><input type="color" class="wfloorpick" value="${hex(s.floorTint)}"><input class="hex wfloorhex" value="${hex(s.floorTint)}" spellcheck="false" maxlength="7"></div>`
+      + `<div style="${LBL}">Wall pattern</div><select class="wpat">${patOpts}</select>`
+      + `<div style="${LBL}">Wall color (preset)</div><select class="wwall">${wallOpts}</select>`
+      + `<div style="${LBL}">Wall color (custom)</div><div class="pickrow"><input type="color" class="wwallpick" value="${hex(s.wallColor)}"><input class="hex wwallhex" value="${hex(s.wallColor)}" spellcheck="false" maxlength="7"></div>`
+      + `<div class="wbtns" style="margin-top:9px"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
     el.querySelector('.wname').onchange = (ev) => { s.name = ev.target.value.trim() || s.type; applyTheme(s); };
     el.querySelector('.wpreset').onchange = (ev) => { const p = PRESETS.find(x => x.id === ev.target.value); if (p) { s.floorType = p.floor; s.wallColor = p.wall; s.wallRoughness = p.rough; s.wallMetalness = p.metal; s.lightColor = p.light; s.lightIntensity = p.li; s.accent = p.accent; applyTheme(s); buildWingEditor(); } };
     el.querySelector('.wfloor').onchange = (ev) => { s.floorType = ev.target.value; applyTheme(s); };
-    el.querySelector('.wwall').onchange = (ev) => { s.wallColor = parseInt(ev.target.value, 10); applyTheme(s); };
+    el.querySelector('.wpat').onchange = (ev) => { s.wallPattern = ev.target.value; applyTheme(s); };
+    const wp = el.querySelector('.wwallpick'), wh = el.querySelector('.wwallhex'), wsel = el.querySelector('.wwall');
+    const setWall = (v, commit) => { s.wallColor = v; wp.value = hex(v); wh.value = hex(v); wsel.value = String(v); applyTheme(s, commit); };
+    wsel.onchange = (ev) => setWall(parseInt(ev.target.value, 10), true);
+    wp.oninput = () => setWall(parseInt(wp.value.slice(1), 16), false);
+    wp.onchange = () => setWall(parseInt(wp.value.slice(1), 16), true);
+    wh.onchange = () => { const v = normHex(wh.value); if (v) setWall(parseInt(v.slice(1), 16), true); else wh.value = hex(s.wallColor); };
+    const fp = el.querySelector('.wfloorpick'), fh = el.querySelector('.wfloorhex');
+    const setTint = (v, commit) => { s.floorTint = v; fp.value = hex(v); fh.value = hex(v); applyTheme(s, commit); };
+    fp.oninput = () => setTint(parseInt(fp.value.slice(1), 16), false);
+    fp.onchange = () => setTint(parseInt(fp.value.slice(1), 16), true);
+    fh.onchange = () => { const v = normHex(fh.value); if (v) setTint(parseInt(v.slice(1), 16), true); else fh.value = hex(s.floorTint); };
     el.querySelector('[data-go]').onclick = () => { if (!started) enterTour(); teleport(s.id); closeMenu(); };
     el.querySelector('[data-mus]').onclick = () => { musicScope = s.id; document.getElementById('musicFile').click(); };
     el.querySelector('[data-musx]')?.addEventListener('click', () => Music.clearTrack(s.id));
@@ -1089,7 +1191,7 @@ const gifFrustum = new THREE.Frustum(); const gifProjM = new THREE.Matrix4(); co
 function updateGifs(dt) { if (!gifAnims.length) return; camera.updateMatrixWorld(); gifProjM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); gifFrustum.setFromProjectionMatrix(gifProjM);
   for (const a of gifAnims) { const p = a.frame.group.position; const inView = camera.position.distanceTo(p) < GIF_VIEW_DIST && gifFrustum.containsPoint(p); updateGif(a, dt, inView); } }
 function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.05); camera.rotation.set(pitch, yaw, 0);
-  if (inTour && !paused && !lightboxOpen && !ctxOpen) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight']) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
+  if (inTour && !paused && !lightboxOpen && !ctxOpen) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight'] || touchRun) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
     camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); } }
   if (++mapTick % 3 === 0 && (inTour || paused)) drawMap();
   updateGifs(dt);
@@ -1106,7 +1208,7 @@ function buildFromConfig(cfg) {
     let s;
     if (o.floorType) {
       // New format: independent floor/wall
-      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' } };
+      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' } };
     } else {
       // Old format: styleId only — convert to new format
       const preset = presetById(o.styleId);
@@ -1132,7 +1234,7 @@ async function boot() {
       return { id: a[0], type: a[1], name: a[2], floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: a[4], x1: a[5], z0: a[6], z1: a[7], sectionTitles: a[8] || { N: '', S: '', E: '', W: '' } };
     } else {
       // New format: [id, type, name, floorType, wallColor, wallRoughness, wallMetalness, lightColor, lightIntensity, accent, x0, x1, z0, z1, sectionTitles]
-      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' } };
+      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' }, wallPattern: a[15], floorTint: a[16] };
     }
   }), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
   else {
