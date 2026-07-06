@@ -911,11 +911,20 @@ addEventListener('touchmove', (e) => { if (lightboxOpen || ctxOpen) return; for 
 function endTouch(e) { for (const t of e.changedTouches) { if (t.identifier === joyId) { joyId = null; joyX = joyY = 0; knob.style.transform = 'translate(0,0)'; } if (t.identifier === lookId) lookId = null; } }
 addEventListener('touchend', endTouch); addEventListener('touchcancel', endTouch);
 function updJoy(t, c) { let dx = t.clientX - c.x, dy = t.clientY - c.y; const d = Math.hypot(dx, dy); if (d > joyR) { dx *= joyR / d; dy *= joyR / d; } knob.style.transform = `translate(${dx}px,${dy}px)`; joyX = dx / joyR; joyY = dy / joyR; }
-document.getElementById('useBtn').addEventListener('click', interact);
+// Fire a HUD button on touchstart (not click): mobile browsers don't synthesize a click for a
+// second-finger tap while another finger is already down (e.g. on the joystick), so a plain click
+// handler silently drops RUN/USE taps made WHILE MOVING. touchstart fires per finger every time.
+// preventDefault suppresses the ghost click; stopPropagation keeps this touch out of the joystick/
+// look tracker. A click fallback covers non-touch (desktop) use.
+function hudPress(el, fn) {
+  el.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); fn(); }, { passive: false });
+  el.addEventListener('click', fn);
+}
+hudPress(document.getElementById('useBtn'), interact);
 // Mobile "run" toggle — lets touch users move at the same faster pace desktop gets by holding Shift.
 let touchRun = false;
 const runBtnEl = document.getElementById('runBtn');
-runBtnEl.addEventListener('click', () => { touchRun = !touchRun; runBtnEl.classList.toggle('on', touchRun); });
+hudPress(runBtnEl, () => { touchRun = !touchRun; runBtnEl.classList.toggle('on', touchRun); });
 
 /* ===== look + interact ===== */
 const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null, lookingFloor = null;
