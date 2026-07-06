@@ -498,13 +498,41 @@ function applyFrameClamps() {
   }
 }
 function clearWallSide(s, side) { for (const m of s.walls[side]) { removeBox(m.userData.bb); const i = wallMeshes.indexOf(m); if (i >= 0) wallMeshes.splice(i, 1); removeBox(m); } s.walls[side] = []; for (const f of s.frames[side]) removeFrame(f); s.frames[side] = []; }
-function rebuildWallSide(s, side) { clearWallSide(s, side); buildWallSide(s, side); }
+// Rebuild one wall side's segments/frames while keeping whatever media is hung there. A doorway
+// opening or closing elsewhere on the same wall reflows the whole side — frame count, positions and
+// clearances can all shift — but a photo whose frame merely moved shouldn't vanish; only a frame
+// whose slot genuinely no longer exists afterward should drop its media. Old frames are matched to
+// the rebuilt ones by nearest position along the wall (not by index) since an opening inserted
+// mid-wall can split/reflow the sequence rather than just shift one end, unlike a plain resize.
+async function rebuildWallSidePreserving(s, side) {
+  const oldIds = new Set(s.frames[side].map(f => f.id));
+  const items = (await snapshotSideMedia(s, [side]))[side].filter(Boolean);
+  resizingDB = true;                    // suppress removeFrame's fire-and-forget DB.del; reconciled below
+  clearWallSide(s, side);
+  buildWallSide(s, side);
+  resizingDB = false;
+  const axisIsX = (side === 'N' || side === 'S'); const newFrames = s.frames[side];
+  const pairs = [];
+  for (const it of items) for (let ni = 0; ni < newFrames.length; ni++) {
+    const u = axisIsX ? newFrames[ni].group.position.x : newFrames[ni].group.position.z;
+    pairs.push({ it, ni, d: Math.abs(u - it.u) });
+  }
+  pairs.sort((a, b) => a.d - b.d);
+  const usedNew = new Set(), usedIt = new Set(), assign = new Map();
+  for (const p of pairs) { if (usedNew.has(p.ni) || usedIt.has(p.it)) continue; usedNew.add(p.ni); usedIt.add(p.it); assign.set(p.ni, p.it); }
+  const keep = new Set(); const puts = [];
+  for (let ni = 0; ni < newFrames.length; ni++) { const it = assign.get(ni); if (!it) continue;
+    const f = newFrames[ni]; transferMedia(f, it); keep.add(f.id);
+    if (it.blob) puts.push({ frame: f.id, type: it.type, blob: it.blob, title: f.title }); }
+  for (const it of items) if (!usedIt.has(it)) discardMedia(it);   // slot genuinely gone — nothing to re-hang it on
+  for (const id of oldIds) if (!keep.has(id)) { try { await DB.del(id); } catch (e) {} }
+  for (const rec of puts) { try { await DB.put(rec); } catch (e) { toast('Storage full — some media is shown this session only'); } }
+}
 // Whenever a room gains or loses an opening on one side, frames on its PERPENDICULAR sides near
 // that same corner may need their clearance recomputed (a door now sits right at that shared
-// corner, per cornerHasDoor). Rebuild the changed side normally, but only RECLAMP (not rebuild) the
-// perpendicular sides — rebuilding them would delete and recreate their frames, permanently wiping
-// any photos already hung there.
-function rebuildWithCorners(s, side) { rebuildWallSide(s, side); const perp = (side === 'N' || side === 'S') ? ['E', 'W'] : ['N', 'S']; for (const p of perp) reclampSideCorners(s, p); }
+// corner, per cornerHasDoor). Rebuild the changed side (preserving its media), then RECLAMP (not
+// rebuild) the perpendicular sides — rebuilding them would delete and recreate their frames too.
+async function rebuildWithCorners(s, side) { await rebuildWallSidePreserving(s, side); const perp = (side === 'N' || side === 'S') ? ['E', 'W'] : ['N', 'S']; for (const p of perp) reclampSideCorners(s, p); }
 // Just the header (wall over the door) for one space's wall. Inset-aware so it lands on the same
 // plane as this space's wall segments. The black portal frame is added separately by buildDoorPortal.
 function buildDoorway(s, side, lo, hi) { const mat = s.wallMat;
@@ -599,7 +627,7 @@ function hallDock(parent, side, u, W) {
   return { len, hits };
 }
 
-function buildSpaceFrom(type, parent, side, uHit) {
+async function buildSpaceFrom(type, parent, side, uHit) {
   const isX = (side === 'N' || side === 'S'); const W = type === 'hall' ? HALLW : RW; let L = type === 'hall' ? HALLLEN : RD; const half = type === 'hall' ? HALLW / 2 : DOORW / 2;
   const [lo, hi] = isX ? [parent.x0, parent.x1] : [parent.z0, parent.z1];
   // When the new space is as wide as the wall it grows from (e.g. a hall extending
@@ -629,7 +657,7 @@ function buildSpaceFrom(type, parent, side, uHit) {
   const s = { id: 's' + (nextId++), type, name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0, x1, z0, z1 };
   spaces.set(s.id, s); buildSpaceBase(s);
   const [olo, ohi] = [u - half, u + half];
-  parent.sides[side].push([olo, ohi]); rebuildWithCorners(parent, side);
+  parent.sides[side].push([olo, ohi]); await rebuildWithCorners(parent, side);
   s.sides[OPP[side]].push([olo, ohi]); addInsetSide(s, OPP[side]);
   // A shortened hall's far wall may dock straight into whatever it ran into — open a doorway there
   // too (clipped to however much of the hall's width the obstruction actually spans), rather than
@@ -646,7 +674,7 @@ function buildSpaceFrom(type, parent, side, uHit) {
   const conn = { a: parent.id, side, lo: olo, hi: ohi }; conn.doorMeshes = buildConnDoors(conn);
   connections.push(conn);
   for (const d of dockedInto) {
-    rebuildWithCorners(d.s2, OPP[side]);
+    await rebuildWithCorners(d.s2, OPP[side]);
     const dconn = { a: d.s2.id, side: OPP[side], lo: d.dlo, hi: d.dhi }; dconn.doorMeshes = buildConnDoors(dconn);
     connections.push(dconn);
   }
@@ -658,9 +686,9 @@ function buildSpaceFrom(type, parent, side, uHit) {
 // Capture the media hung on each side, in wall order, before a resize wipes/relays the frames.
 // Returns per-side arrays of { type, blob, title } (or null for an empty slot) so they can be
 // re-hung onto the rebuilt frames in the same order afterwards.
-async function snapshotSideMedia(s) {
+async function snapshotSideMedia(s, sides = SIDES) {
   const snap = {};
-  for (const sd of SIDES) { snap[sd] = [];
+  for (const sd of sides) { snap[sd] = []; const axisIsX = (sd === 'N' || sd === 'S');
     for (const f of s.frames[sd]) {
       if (!f.filled) { snap[sd].push(null); continue; }
       // Capture the LIVE rendered objects so we can transfer them onto the relaid frames without
@@ -668,7 +696,8 @@ async function snapshotSideMedia(s) {
       // (iOS). Also grab the blob (from the DB, or recovered from the live object URL when the item
       // was never persisted because storage was full) so the item can be re-saved after the resize.
       const type = f.video ? 'video' : f.gif ? 'gif' : 'image';
-      const it = { type, title: f.title || '', srcURL: f.srcURL, map: f.mat.map, gif: f.gif, video: f.video, natW: f.natW, natH: f.natH, blob: null };
+      const u = axisIsX ? f.group.position.x : f.group.position.z;
+      const it = { type, title: f.title || '', srcURL: f.srcURL, map: f.mat.map, gif: f.gif, video: f.video, natW: f.natW, natH: f.natH, blob: null, u };
       const rec = await DB.get(f.id);
       if (rec && rec.blob) it.blob = rec.blob;
       else if (f.srcURL) { try { it.blob = await (await fetch(f.srcURL)).blob(); } catch (e) {} }
@@ -922,17 +951,17 @@ async function deleteSpace(id, opts = {}) {
   if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }));
   for (const c of involved) { const i = connections.indexOf(c); if (i >= 0) connections.splice(i, 1); }
   disposeSpace(s); spaces.delete(id);
-  for (const r of reseal) { (r.doorMeshes || []).forEach(removeBox); const o = spaces.get(r.otherId); if (o) { const arr = o.sides[r.otherSide]; const idx = arr.findIndex(p => Math.abs(p[0] - r.lo) < 0.05 && Math.abs(p[1] - r.hi) < 0.05); if (idx >= 0) arr.splice(idx, 1); rebuildWithCorners(o, r.otherSide); } }
+  for (const r of reseal) { (r.doorMeshes || []).forEach(removeBox); const o = spaces.get(r.otherId); if (o) { const arr = o.sides[r.otherSide]; const idx = arr.findIndex(p => Math.abs(p[0] - r.lo) < 0.05 && Math.abs(p[1] - r.hi) < 0.05); if (idx >= 0) arr.splice(idx, 1); await rebuildWithCorners(o, r.otherSide); } }
   if (currentId() === null) { const first = spaces.values().next().value; if (first) teleport(first.id); }
   applyFrameClamps(); saveConfig(); buildWingEditor(); updateCount(); toast('Deleted ' + s.name);
   if (opts.undo && snap) pushUndo('delete ' + snap.s.type, () => rebuildSpace(snap));
 }
-function rebuildSpace(snap) {
+async function rebuildSpace(snap) {
   const s = { ...snap.s }; spaces.set(s.id, s); buildSpaceBase(s);
   for (const c of snap.conns) { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const A = spaces.get(c.a); if (A) A.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb && spaces.get(nb)) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); addInsetSide(spaces.get(nb), OPP[c.side]); } }
   for (const sd of SIDES) buildWallSide(s, sd);
   const done = new Set();
-  for (const c of snap.conns) { const nbId = (c.a === s.id) ? spaceOnOtherSide(c) : c.a; const nbSide = (c.a === s.id) ? OPP[c.side] : c.side; const key = nbId + nbSide; if (spaces.get(nbId) && !done.has(key)) { rebuildWithCorners(spaces.get(nbId), nbSide); done.add(key); } }
+  for (const c of snap.conns) { const nbId = (c.a === s.id) ? spaceOnOtherSide(c) : c.a; const nbSide = (c.a === s.id) ? OPP[c.side] : c.side; const key = nbId + nbSide; if (spaces.get(nbId) && !done.has(key)) { await rebuildWithCorners(spaces.get(nbId), nbSide); done.add(key); } }
   for (const c of snap.conns) { const conn = connections.find(x => x.a === c.a && x.side === c.side && Math.abs(x.lo - c.lo) < 0.05); if (conn) conn.doorMeshes = buildConnDoors(conn); }
   applyTheme(s, false);
   for (const rec of snap.media) { const f = frameById.get(rec.frame); if (f) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); DB.put(rec).catch(() => {}); drawPlate(f); } }
