@@ -17,6 +17,7 @@ A self‑contained, **first‑person virtual museum** you fill with your own pho
 - **Build it as you go** — face any wall and **left‑click for a hall** (a picture‑lined corridor) or **right‑click for a wing** (a full gallery room). Doorways are flanked by pictures on both sides.
 - **Themes, floors & walls** — 6 preset themes (Classic Hall, Modern White, The Garden, Midnight, Rose Gallery, Slate Loft), or pick a **floor design** (wood, marble, tile, dark, concrete) and **wall colour** independently. Matching floors flow seamlessly across adjoining halls and wings. Name each room.
 - **Background music** — built‑in generative ambient pad, or load your own track — globally or per room (crossfades as you walk between rooms).
+- **Showcase** — the main wing has a freestanding display cube at its centre, one frame per side, that automatically cycles through your media at random. Point it at a single wing instead of the whole museum from the ☰ menu's main wing section.
 - **Find your way** — live minimap, a room **overview** with thumbnails, and a cinematic **guided auto‑tour**.
 - **Save & share** — everything persists in your browser; **export/import** a single `.museum` file (media + music included), or copy a **share link** that carries the layout (no server needed).
 
