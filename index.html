@@ -379,7 +379,7 @@ function removeFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.sr
 // addFrame's visuals but is popped straight back out of the global frames/frameById bookkeeping so
 // it never shows up in raycasting, fill counts, or DB persistence — its media is only ever a live
 // copy of whatever it's currently cycling to, never something a visitor hangs themselves.
-function addStandaloneFrame(id, x, y, z, ry, maxHalf) { const f = addFrame(id, x, y, z, ry, maxHalf); frames.pop(); frameById.delete(id); return f; }
+function addStandaloneFrame(id, x, y, z, ry, maxHalf) { const f = addFrame(id, x, y, z, ry, maxHalf); frames.pop(); frameById.delete(id); f.art.userData.showcase = true; return f; }
 function disposeStandaloneFrame(f) { if (!f) return; stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; } if (audibleVideo === f) audibleVideo = null; scene.remove(f.group); }
 
 /* ===== spaces, walls, doorways ===== */
@@ -1134,22 +1134,26 @@ const runBtnEl = document.getElementById('runBtn');
 hudPress(runBtnEl, () => { touchRun = !touchRun; runBtnEl.classList.toggle('on', touchRun); });
 
 /* ===== look + interact ===== */
-const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null, lookingFloor = null;
+const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null, lookingFloor = null, lookingShowcase = false;
 const promptEl = document.getElementById('prompt'), crossEl = document.getElementById('crosshair');
 function updateLook() {
-  raycaster.setFromCamera({ x: 0, y: 0 }, camera); const arts = frames.map(f => f.art); const flrs = []; spaces.forEach(s => { if (s.floor) flrs.push(s.floor); }); const objs = [...arts, ...wallMeshes, ...flrs];
-  const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null; lookingFloor = null;
+  raycaster.setFromCamera({ x: 0, y: 0 }, camera); const arts = frames.map(f => f.art);
+  const mw = mainWing(); const scArts = mw?.showcaseFrames ? Object.values(mw.showcaseFrames).map(f => f.art) : [];
+  const flrs = []; spaces.forEach(s => { if (s.floor) flrs.push(s.floor); }); const objs = [...arts, ...scArts, ...wallMeshes, ...flrs];
+  const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null; lookingFloor = null; lookingShowcase = false;
   if (hit) { const ai = arts.indexOf(hit.object);
     if (ai >= 0 && hit.distance < 6.5) lookingAt = frames[ai];
+    else if (hit.object.userData.showcase && hit.distance < 6.5) lookingShowcase = true;
     else if (hit.object.userData.add && hit.distance < 5.5) { const ad = hit.object.userData.add; const u = (ad.side === 'N' || ad.side === 'S') ? hit.point.x : hit.point.z; lookingWall = { id: ad.id, side: ad.side, u }; }
     else if (hit.object.userData.floorId && hit.distance < 8) lookingFloor = { id: hit.object.userData.floorId }; }
   if (inTour && !GT.active && lookingAt) { crossEl.classList.add('active'); if (!lookingAt.filled) showPrompt('<b>' + (isTouch ? 'USE' : 'Click') + '</b> to hang a photo, video or GIF'); else showPrompt(isTouch ? '<b>USE</b> to view' : '<b>Click</b> to view · <b>R-click</b> build a wing here · <b>⌫</b> clear'); }
+  else if (inTour && !GT.active && lookingShowcase) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> to choose what the showcase shows' : '<b>Click</b> to choose what the showcase shows'); }
   else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> for wall options' : '<b>Click</b> for wall options (hall, wing, extend, heading)'); }
   else if (inTour && !GT.active && lookingFloor) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> to change the floor' : '<b>Click</b> to change the floor design'); }
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
 }
 const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
-function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else openLightbox(f); } else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
+function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else openLightbox(f); } else if (lookingShowcase) openCtxMenu('showcase', null); else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
 function buildAtWall(type) { if (!lookingWall) return; const p = spaces.get(lookingWall.id); if (p) buildSpaceFrom(type, p, lookingWall.side, lookingWall.u); }
 function frameSpace(f) { return spaces.get(f.id.split(':')[0]); }
 function frameSide(f) { return f.id.split(':')[1]; }
@@ -1210,6 +1214,19 @@ function ctxAddColorPicker(parent, label, current, onPick) {
   row.append(inp, code); parent.appendChild(row);
 }
 function openCtxMenu(kind, target) {
+  if (kind === 'showcase') {
+    const s = mainWing(); if (!s) return;
+    ctxTarget = { kind: 'showcase', id: s.id };
+    const optsEl = document.getElementById('ctxopts'); optsEl.innerHTML = '';
+    document.getElementById('ctxtitle').textContent = 'Showcase';
+    const scope = s.showcaseScope || 'all';
+    const items = [{ label: 'Whole museum (random)', value: 'all', on: scope === 'all' }]
+      .concat(sortedSpaces().filter(o => o.id !== s.id).map(o => ({ label: o.name, value: o.id, on: scope === o.id })));
+    ctxAddSwatches(optsEl, 'Cycles media from', items, true, (it) => { s.showcaseScope = it.value; saveConfig(); cycleShowcase(); buildWingEditor(); toast('Showcase now cycling ' + (it.value === 'all' ? 'the whole museum' : it.label)); });
+    ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
+    if (document.pointerLockElement) document.exitPointerLock();
+    return;
+  }
   const s = spaces.get(target.id); if (!s) return;
   ctxTarget = { kind, id: target.id, side: target.side, u: target.u };
   const optsEl = document.getElementById('ctxopts'); optsEl.innerHTML = '';
