@@ -450,6 +450,15 @@ function positionShowcaseHeading(s, side, m) {
 // The main wing (the one and only 'room'-type space) gets a showcase: a single square of four
 // solid walls at its centre, each wall exactly one picture frame wide, with a frame facing outward
 // on every side. Rebuilt (and re-centred) whenever the room's base is — e.g. after "Extend room".
+// The room's own point light sits high overhead and its spotlights are aimed outward at the ROOM's
+// perimeter — neither reaches the showcase's small vertical wall faces at a useful angle, so without
+// its own light source the showcase reads much darker than the room walls it's meant to match. One
+// small point light just outside each face (positioned so its direction-to-surface roughly lines up
+// with that face's outward normal) fixes that; each also doubles as gentle spot-lighting on the frame.
+function updateShowcaseLights(s) {
+  if (!s.showcaseLights) return;
+  for (const l of s.showcaseLights) { l.color.set(s.lightColor); l.intensity = 5; }
+}
 function buildShowcase(s) {
   if (s.showcaseScope == null) s.showcaseScope = 'all';
   if (s.showcaseLabel == null) s.showcaseLabel = 'Showcase';
@@ -457,6 +466,10 @@ function buildShowcase(s) {
   const x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
   s.showcaseWallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: 0.9 });
   updateShowcaseTheme(s);
+  const lightY = 2.15, ld = 1.7;
+  s.showcaseLights = [[cx, z0 - ld], [cx, z1 + ld], [x1 + ld, cz], [x0 - ld, cz]].map(([lx, lz]) => {
+    const l = new THREE.PointLight(s.lightColor, 5, 6, 2); l.position.set(lx, lightY, lz); scene.add(l); return l;
+  });
   const meshes = [];
   const mkWall = (bx, bz, sx, sz, axisIsX) => { const m = box(bx, SHOWCASE_H / 2, bz, sx, SHOWCASE_H, sz, s.showcaseWallMat); bakeWallUV(m, axisIsX); meshes.push(m); };
   mkWall(cx, z0, SHOWCASE_W, T, true);   // north wall
@@ -672,7 +685,7 @@ function applyTheme(s, save = true) {
   s.spots.forEach(sp => sp.color.set(s.lightColor));
   s.stars.visible = s.floorType === 'dark';
   updateSectionTitles(s);
-  updateShowcaseTheme(s); updateShowcaseHeading(s);
+  updateShowcaseTheme(s); updateShowcaseHeading(s); updateShowcaseLights(s);
   if (s.id === lastId) document.getElementById('roomlabel').textContent = s.name;
   if (save) saveConfig();
 }
@@ -1017,7 +1030,7 @@ const undoStack = [];
 function updateUndoBtn() { const b = document.getElementById('undoBtn'); if (!b) return; b.disabled = undoStack.length === 0; b.textContent = undoStack.length ? '↶ Undo: ' + undoStack[undoStack.length - 1].label : '↶ Nothing to undo'; }
 function pushUndo(label, fn) { undoStack.push({ label, fn }); if (undoStack.length > 40) undoStack.shift(); updateUndoBtn(); }
 async function doUndo() { const u = undoStack.pop(); if (!u) { toast('Nothing to undo'); updateUndoBtn(); return; } try { await u.fn(); toast('Undid: ' + u.label); } catch (e) { console.error(e); toast('Could not undo that'); } updateUndoBtn(); }
-function disposeSpace(s) { if (s.showcaseFrames) { for (const sd of SIDES) disposeStandaloneFrame(s.showcaseFrames[sd]); s.showcaseFrames = null; } if (s.showcaseMeshes) { s.showcaseMeshes.forEach(removeBox); s.showcaseMeshes = null; } if (s.showcaseHeadingMeshes) { for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } s.showcaseHeadingMeshes = null; } for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); removeBox(s.strip); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
+function disposeSpace(s) { if (s.showcaseFrames) { for (const sd of SIDES) disposeStandaloneFrame(s.showcaseFrames[sd]); s.showcaseFrames = null; } if (s.showcaseMeshes) { s.showcaseMeshes.forEach(removeBox); s.showcaseMeshes = null; } if (s.showcaseHeadingMeshes) { for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } s.showcaseHeadingMeshes = null; } if (s.showcaseLights) { s.showcaseLights.forEach(l => scene.remove(l)); s.showcaseLights = null; } for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); removeBox(s.strip); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
 async function deleteSpace(id, opts = {}) {
   if (spaces.size <= 1) { toast('Keep at least one room'); return; }
   const s = spaces.get(id); if (!s) return;
