@@ -420,15 +420,45 @@ function buildSpaceBase(s) {
   s.sides = { N: [], S: [], E: [], W: [] }; s.walls = { N: [], S: [], E: [], W: [] }; s.frames = { N: [], S: [], E: [], W: [] };
   if (s.type === 'room') buildShowcase(s);
 }
+// Showcase wall colour/pattern default to matching the main room's own, but can be overridden
+// independently (null/undefined on either field means "match the room").
+function resolveShowcaseWallColor(s) { return s.showcaseWallColor != null ? s.showcaseWallColor : s.wallColor; }
+function resolveShowcaseWallPattern(s) { return s.showcaseWallPattern != null ? s.showcaseWallPattern : s.wallPattern; }
+function updateShowcaseTheme(s) {
+  if (!s.showcaseWallMat) return;
+  const pattern = resolveShowcaseWallPattern(s);
+  s.showcaseWallMat.color.set(resolveShowcaseWallColor(s));
+  s.showcaseWallMat.map = pattern === 'brick' ? brickTex : null;
+  s.showcaseWallMat.roughness = pattern === 'brick' ? 0.98 : 0.9;
+  s.showcaseWallMat.needsUpdate = true;
+}
+// The editable "Showcase" label painted above the frame on all four showcase walls.
+function updateShowcaseHeading(s) {
+  if (!s.showcaseHeadingMeshes) return;
+  const txt = (s.showcaseLabel != null ? s.showcaseLabel : 'Showcase').trim();
+  for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, s.accent); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+}
+function positionShowcaseHeading(s, side, m) {
+  const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2, x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
+  const w = SHOWCASE_W - 0.6; m.scale.set(w, w / 4, 1);
+  const off = T / 2 + 0.06, y = SHOWCASE_H - 0.45;
+  if (side === 'N') { m.position.set(cx, y, z0 - off); m.rotation.y = Math.PI; }
+  else if (side === 'S') { m.position.set(cx, y, z1 + off); m.rotation.y = 0; }
+  else if (side === 'E') { m.position.set(x1 + off, y, cz); m.rotation.y = Math.PI / 2; }
+  else { m.position.set(x0 - off, y, cz); m.rotation.y = -Math.PI / 2; }
+}
 // The main wing (the one and only 'room'-type space) gets a showcase: a single square of four
 // solid walls at its centre, each wall exactly one picture frame wide, with a frame facing outward
 // on every side. Rebuilt (and re-centred) whenever the room's base is — e.g. after "Extend room".
 function buildShowcase(s) {
   if (s.showcaseScope == null) s.showcaseScope = 'all';
+  if (s.showcaseLabel == null) s.showcaseLabel = 'Showcase';
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2;
   const x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
+  s.showcaseWallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: 0.9 });
+  updateShowcaseTheme(s);
   const meshes = [];
-  const mkWall = (bx, bz, sx, sz, axisIsX) => { const m = box(bx, SHOWCASE_H / 2, bz, sx, SHOWCASE_H, sz, s.wallMat); bakeWallUV(m, axisIsX); meshes.push(m); };
+  const mkWall = (bx, bz, sx, sz, axisIsX) => { const m = box(bx, SHOWCASE_H / 2, bz, sx, SHOWCASE_H, sz, s.showcaseWallMat); bakeWallUV(m, axisIsX); meshes.push(m); };
   mkWall(cx, z0, SHOWCASE_W, T, true);   // north wall
   mkWall(cx, z1, SHOWCASE_W, T, true);   // south wall
   mkWall(x1, cz, T, SHOWCASE_W, false);  // east wall
@@ -441,6 +471,9 @@ function buildShowcase(s) {
     E: addStandaloneFrame(s.id + ':showcase:E', x1 + T / 2 + 0.04, 1.75, cz, Math.PI / 2, maxHalf),
     W: addStandaloneFrame(s.id + ':showcase:W', x0 - T / 2 - 0.04, 1.75, cz, -Math.PI / 2, maxHalf),
   };
+  s.showcaseHeadingMeshes = {};
+  for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', s.accent), transparent: true, depthWrite: false })); positionShowcaseHeading(s, sd, m); scene.add(m); s.showcaseHeadingMeshes[sd] = m; }
+  updateShowcaseHeading(s);
   cycleShowcase();
 }
 // Clearance a frame's outer edge should keep from a segment end so it doesn't overlap a door jamb
@@ -639,6 +672,7 @@ function applyTheme(s, save = true) {
   s.spots.forEach(sp => sp.color.set(s.lightColor));
   s.stars.visible = s.floorType === 'dark';
   updateSectionTitles(s);
+  updateShowcaseTheme(s); updateShowcaseHeading(s);
   if (s.id === lastId) document.getElementById('roomlabel').textContent = s.name;
   if (save) saveConfig();
 }
@@ -983,14 +1017,14 @@ const undoStack = [];
 function updateUndoBtn() { const b = document.getElementById('undoBtn'); if (!b) return; b.disabled = undoStack.length === 0; b.textContent = undoStack.length ? '↶ Undo: ' + undoStack[undoStack.length - 1].label : '↶ Nothing to undo'; }
 function pushUndo(label, fn) { undoStack.push({ label, fn }); if (undoStack.length > 40) undoStack.shift(); updateUndoBtn(); }
 async function doUndo() { const u = undoStack.pop(); if (!u) { toast('Nothing to undo'); updateUndoBtn(); return; } try { await u.fn(); toast('Undid: ' + u.label); } catch (e) { console.error(e); toast('Could not undo that'); } updateUndoBtn(); }
-function disposeSpace(s) { if (s.showcaseFrames) { for (const sd of SIDES) disposeStandaloneFrame(s.showcaseFrames[sd]); s.showcaseFrames = null; } if (s.showcaseMeshes) { s.showcaseMeshes.forEach(removeBox); s.showcaseMeshes = null; } for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); removeBox(s.strip); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
+function disposeSpace(s) { if (s.showcaseFrames) { for (const sd of SIDES) disposeStandaloneFrame(s.showcaseFrames[sd]); s.showcaseFrames = null; } if (s.showcaseMeshes) { s.showcaseMeshes.forEach(removeBox); s.showcaseMeshes = null; } if (s.showcaseHeadingMeshes) { for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } s.showcaseHeadingMeshes = null; } for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); removeBox(s.strip); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
 async function deleteSpace(id, opts = {}) {
   if (spaces.size <= 1) { toast('Keep at least one room'); return; }
   const s = spaces.get(id); if (!s) return;
   if (opts.confirm && !confirm('Delete "' + s.name + '" and everything in it?')) return;
   GT.stop();
   let snap = null;
-  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope }, conns: [], media }; }
+  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseLabel: s.showcaseLabel, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern }, conns: [], media }; }
   const involved = connections.filter(c => c.a === id || spaceOnOtherSide(c) === id);
   const reseal = involved.map(c => ({ otherId: (c.a === id) ? spaceOnOtherSide(c) : c.a, otherSide: (c.a === id) ? OPP[c.side] : c.side, lo: c.lo, hi: c.hi, doorMeshes: c.doorMeshes }));
   if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }));
@@ -1015,7 +1049,7 @@ async function rebuildSpace(snap) {
 const updateCount = () => document.getElementById('count').textContent = `${frames.filter(f => f.filled).length} / ${frames.length} filled`;
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
-const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
+const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseLabel: s.showcaseLabel, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
 
 /* ===== sample art ===== */
 function drawSample(g, w, h, k) { const pals = [['#ff9a4d', '#ffd86b'], ['#4d79ff', '#9b6bff'], ['#0f2027', '#2c5364'], ['#34d399', '#a7f3d0'], ['#f472b6', '#c084fc'], ['#0ea5e9', '#2dd4bf']][k % 6]; const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, pals[0]); grad.addColorStop(1, pals[1]); g.fillStyle = grad; g.fillRect(0, 0, w, h); g.globalAlpha = .18; for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#000000'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, 0, 7); g.fill(); } g.globalAlpha = 1; if (k === 5) { g.fillStyle = 'rgba(0,0,0,.32)'; g.fillRect(w * .12, h * .34, w * .76, h * .32); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 60px Georgia, serif'; g.fillText('Your Museum', w / 2, h * .47); g.font = '400 26px system-ui'; g.fillText('face a wall & click to build', w / 2, h * .57); } else { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 8; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, Math.random() * h); g.bezierCurveTo(w * .3, Math.random() * h, w * .6, Math.random() * h, w, Math.random() * h); g.stroke(); } } }
@@ -1040,14 +1074,13 @@ function showcaseApply(f, src) {
   f.title = src.title || '';
   applyByType(f, type, src.srcURL);
 }
-// Refresh the showcase's four slots from its current scope, picking without replacement from a
-// shuffled bag (so the four faces don't repeat the same piece unless the pool is smaller than 4).
+// Refresh the showcase from its current scope — all four faces show the SAME piece at once, as if
+// showcasing that one item, then move on to another random pick next cycle.
 function cycleShowcase() {
   const s = mainWing(); if (!s || !s.showcaseFrames) return;
   const pool = showcasePool(s.showcaseScope);
-  if (!pool.length) { for (const sd of SIDES) showcaseApply(s.showcaseFrames[sd], null); return; }
-  const bag = pool.slice();
-  for (const sd of SIDES) { if (!bag.length) bag.push(...pool); const i = Math.floor(Math.random() * bag.length); showcaseApply(s.showcaseFrames[sd], bag.splice(i, 1)[0]); }
+  const pick = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+  for (const sd of SIDES) showcaseApply(s.showcaseFrames[sd], pick);
 }
 let showcaseTimer = null;
 function startShowcase() { cycleShowcase(); if (!showcaseTimer) showcaseTimer = setInterval(cycleShowcase, 7000); }
@@ -1215,7 +1248,7 @@ async function exportGallery() {
   const recs = await DB.all(); const out = []; for (const r of recs) { if (r.blob) out.push({ frame: r.frame, type: r.type, title: r.title || '', mime: r.blob.type, data: await blobToDataURL(r.blob) }); else out.push({ frame: r.frame, config: r.config }); } const json = JSON.stringify({ app: 'my-museum', version: 5, records: out }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = filename; a.click(); toast(`Exported ${out.length} item${out.length !== 1 ? 's' : ''} (incl. media + music)`); }
 document.getElementById('importFile').addEventListener('change', async (e) => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; try { const data = JSON.parse(await file.text()); const recs = data.records || data.items; if (!recs) throw 0; toast('Importing…'); for (const it of recs) { if (it.config) { await DB.put({ frame: it.frame, config: it.config }); continue; } const blob = await (await fetch(it.data)).blob(); await DB.put({ frame: it.frame, type: it.type, blob, title: it.title || '' }); } location.hash = ''; setTimeout(() => location.reload(), 400); } catch { toast('Could not read that file'); } });
 async function saveGallery() { for (const f of frames) if (f.filled) { const rec = await DB.get(f.id); if (rec) { rec.title = f.title; await DB.put(rec); } } await saveConfig(); toast('Saved to this browser'); }
-function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint, s.showcaseScope]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
+function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint, s.showcaseScope, s.showcaseLabel, s.showcaseWallColor, s.showcaseWallPattern]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
 function readShare() { const m = location.hash.match(/m=([^&]+)/); if (!m) return null; try { return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); } catch { return null; } }
 
 /* ===== music ===== */
@@ -1252,7 +1285,7 @@ menu.querySelectorAll('button[data-act]').forEach(b => b.onclick = () => { const
   else if (a === 'resetall') { if (confirm('Completely reset the museum? This wipes ALL media, rooms, music and settings, and cannot be undone.')) DB.all().then(rs => Promise.all(rs.map(r => DB.del(r.frame))).then(() => { location.hash = ''; location.reload(); })); }
   else if (a === 'tour') { closeMenu(); if (!started) enterTour(); GT.start(); }
   else if (a === 'exit') { closeMenu(); exitTour(); } });
-document.getElementById('sectionTitlesOn').addEventListener('change', (e) => { showSectionTitles = e.target.checked; spaces.forEach(updateSectionTitles); saveConfig(); });
+document.getElementById('sectionTitlesOn').addEventListener('change', (e) => { showSectionTitles = e.target.checked; spaces.forEach(updateSectionTitles); spaces.forEach(updateShowcaseHeading); saveConfig(); });
 document.getElementById('musicOn').addEventListener('change', (e) => Music.setOn(e.target.checked));
 document.getElementById('musicVol').addEventListener('input', (e) => Music.setVol(+e.target.value));
 document.getElementById('musicFile').addEventListener('change', (e) => { if (e.target.files[0]) Music.setTrack(musicScope, e.target.files[0]); e.target.value = ''; });
@@ -1288,9 +1321,25 @@ function buildWingEditor() {
     const isMainWing = s.type === 'room';
     const showcaseOpts = isMainWing ? ['<option value="all"' + ((!s.showcaseScope || s.showcaseScope === 'all') ? ' selected' : '') + '>Whole museum (random)</option>']
       .concat(sortedSpaces().filter(o => o.id !== s.id).map(o => `<option value="${o.id}"${s.showcaseScope === o.id ? ' selected' : ''}>${o.name}</option>`)).join('') : '';
+    const showcaseWallMatched = s.showcaseWallColor == null && s.showcaseWallPattern == null;
+    const showcaseWallColorVal = s.showcaseWallColor != null ? s.showcaseWallColor : s.wallColor;
+    const showcaseWallPatternVal = s.showcaseWallPattern != null ? s.showcaseWallPattern : s.wallPattern;
+    const showcaseWallOpts = WALL_COLORS.map(o => `<option value="${o.value}"${o.value === showcaseWallColorVal ? ' selected' : ''}>${o.name}</option>`).join('');
+    const showcaseWallPatOpts = [['smooth', 'Smooth'], ['brick', 'Brick']].map(([v, n]) => `<option value="${v}"${showcaseWallPatternVal === v ? ' selected' : ''}>${n}</option>`).join('');
+    const showcaseBlock = isMainWing
+      ? `<div style="${LBL};margin-top:2px">🖼 Showcase (centre display)</div>`
+        + `<div style="${LBL};margin-top:0;color:#9a9aa6">Cycles media from</div><select class="wshowcase">${showcaseOpts}</select>`
+        + `<div style="${LBL}">Label above the frames</div><input class="wname wshowlabel" value="${(s.showcaseLabel ?? 'Showcase').replace(/"/g, '&quot;')}" maxlength="24" placeholder="(no label)">`
+        + `<div class="musicrow" style="margin-top:6px"><label class="switch"><input type="checkbox" class="wshowmatch" ${showcaseWallMatched ? 'checked' : ''}><span></span></label><span>Showcase wall matches main room</span></div>`
+        + `<div class="wshowwallcustom" style="display:${showcaseWallMatched ? 'none' : 'flex'};flex-direction:column;gap:6px;margin-top:4px">`
+          + `<select class="wshowwallpat">${showcaseWallPatOpts}</select>`
+          + `<select class="wshowwall">${showcaseWallOpts}</select>`
+          + `<div class="pickrow"><input type="color" class="wshowwallpick" value="${hex(showcaseWallColorVal)}"><input class="hex wshowwallhex" value="${hex(showcaseWallColorVal)}" spellcheck="false" maxlength="7"></div>`
+        + `</div>`
+      : '';
     const el = document.createElement('div'); el.className = 'wing' + (s.id === currentId() ? ' current' : ''); el.dataset.id = s.id;
     el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"><span class="whereami">📍 Here</span></div>`
-      + (isMainWing ? `<div style="${LBL};margin-top:2px">🖼 Showcase (centre display) cycles</div><select class="wshowcase">${showcaseOpts}</select>` : '')
+      + showcaseBlock
       + `<div style="${LBL};margin-top:2px">Preset themes</div><select class="wpreset">${presetOpts}</select>`
       + `<details class="custpick appearance" style="margin-top:6px"><summary><span class="chip wallchip" title="Wall colour" style="background:${hex(s.wallColor)}"></span><span class="chip floorchip" title="Floor tint" style="background:${hex(s.floorTint)}"></span>Wall &amp; floor<span class="arrow">▾</span></summary><div class="dropbody">`
         + `<div style="${LBL};margin-top:0">Floor design</div><select class="wfloor">${floorOpts}</select>`
@@ -1301,7 +1350,22 @@ function buildWingEditor() {
         + `</div></details>`
       + `<div class="wbtns" style="margin-top:9px"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
     el.querySelector('.wname').onchange = (ev) => { s.name = ev.target.value.trim() || s.type; applyTheme(s); };
-    if (isMainWing) el.querySelector('.wshowcase').onchange = (ev) => { s.showcaseScope = ev.target.value; saveConfig(); cycleShowcase(); };
+    if (isMainWing) {
+      el.querySelector('.wshowcase').onchange = (ev) => { s.showcaseScope = ev.target.value; saveConfig(); cycleShowcase(); };
+      el.querySelector('.wshowlabel').onchange = (ev) => { s.showcaseLabel = ev.target.value.trim(); updateShowcaseHeading(s); saveConfig(); };
+      el.querySelector('.wshowmatch').onchange = (ev) => {
+        if (ev.target.checked) { s.showcaseWallColor = null; s.showcaseWallPattern = null; }
+        else { s.showcaseWallColor = s.showcaseWallColor ?? s.wallColor; s.showcaseWallPattern = s.showcaseWallPattern ?? s.wallPattern; }
+        updateShowcaseTheme(s); saveConfig(); buildWingEditor();
+      };
+      const swSel = el.querySelector('.wshowwall'), swPick = el.querySelector('.wshowwallpick'), swHex = el.querySelector('.wshowwallhex');
+      const setShowcaseWall = (v, commit) => { s.showcaseWallColor = v; swPick.value = hex(v); swHex.value = hex(v); swSel.value = String(v); updateShowcaseTheme(s); if (commit) saveConfig(); };
+      swSel.onchange = (ev) => setShowcaseWall(parseInt(ev.target.value, 10), true);
+      swPick.oninput = () => setShowcaseWall(parseInt(swPick.value.slice(1), 16), false);
+      swPick.onchange = () => setShowcaseWall(parseInt(swPick.value.slice(1), 16), true);
+      swHex.onchange = () => { const v = normHex(swHex.value); if (v) setShowcaseWall(parseInt(v.slice(1), 16), true); else swHex.value = hex(s.showcaseWallColor ?? s.wallColor); };
+      el.querySelector('.wshowwallpat').onchange = (ev) => { s.showcaseWallPattern = ev.target.value; updateShowcaseTheme(s); saveConfig(); };
+    }
     el.querySelector('.wpreset').onchange = (ev) => { const p = PRESETS.find(x => x.id === ev.target.value); if (p) { s.floorType = p.floor; s.wallColor = p.wall; s.wallRoughness = p.rough; s.wallMetalness = p.metal; s.lightColor = p.light; s.lightIntensity = p.li; s.accent = p.accent; applyTheme(s); buildWingEditor(); } };
     el.querySelector('.wfloor').onchange = (ev) => { s.floorType = ev.target.value; applyTheme(s); };
     el.querySelector('.wpat').onchange = (ev) => { s.wallPattern = ev.target.value; applyTheme(s); };
@@ -1396,11 +1460,11 @@ function buildFromConfig(cfg) {
     let s;
     if (o.floorType) {
       // New format: independent floor/wall
-      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all' };
+      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern };
     } else {
       // Old format: styleId only — convert to new format
       const preset = presetById(o.styleId);
-      s = { id: o.id, type: o.type, name: o.name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all' };
+      s = { id: o.id, type: o.type, name: o.name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern };
     }
     spaces.set(s.id, s);
   });
@@ -1422,7 +1486,7 @@ async function boot() {
       return { id: a[0], type: a[1], name: a[2], floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: a[4], x1: a[5], z0: a[6], z1: a[7], sectionTitles: a[8] || { N: '', S: '', E: '', W: '' } };
     } else {
       // New format: [id, type, name, floorType, wallColor, wallRoughness, wallMetalness, lightColor, lightIntensity, accent, x0, x1, z0, z1, sectionTitles]
-      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' }, wallPattern: a[15], floorTint: a[16], showcaseScope: a[17] || 'all' };
+      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' }, wallPattern: a[15], floorTint: a[16], showcaseScope: a[17] || 'all', showcaseLabel: a[18], showcaseWallColor: a[19], showcaseWallPattern: a[20] };
     }
   }), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
   else {
@@ -1430,6 +1494,9 @@ async function boot() {
     else { const preset = PRESETS[0]; const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2 }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); saveConfig(); }
     for (const r of mediaRecs) { const f = frameById.get(r.frame); if (!f) continue; if (r.title) f.title = r.title; if (r.blob) applyByType(f, r.type, URL.createObjectURL(r.blob)); else drawPlate(f); }
   }
+  // Spawn pulled back from the main wing's centre so the showcase reads as a small structure inside
+  // a larger room on first look, rather than filling the view like one big wall.
+  const mw = mainWing(); if (mw) camera.position.set(mw.cx, 1.7, mw.cz + Math.max(2.5, Math.min(6, (mw.z1 - mw.cz) - 1.4)));
   applyFrameClamps(); buildWingEditor(); updateCount(); updateUndoBtn();
   if (!share && !config && !hadMedia) await addSamples();
   startShowcase();
