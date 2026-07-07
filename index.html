@@ -54,6 +54,13 @@
   .wing select { background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px; font: 500 12.5px inherit; flex: 1; }
   .wing .wbtns { display: flex; gap: 6px; } .wing .wbtns button { flex: 1; cursor: pointer; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #dcdce4; font: 600 12px inherit; padding: 7px; border-radius: 7px; } .wing .wbtns button:hover { background: rgba(255,255,255,.14); } .wing .wbtns button.has { border-color: #ffc24d55; color: #ffd27a; } .wing .wbtns button.del { border-color: #ff6b6b55; color: #ff9a9a; } .wing .wbtns button.del:hover { background: rgba(255,107,107,.16); }
   .wing .pickrow { display: flex; gap: 6px; align-items: center; }
+  .wing details.custpick { border: 1px solid rgba(255,255,255,.1); border-radius: 7px; background: rgba(255,255,255,.03); }
+  .wing details.custpick summary { cursor: pointer; padding: 7px 8px; font: 600 11.5px inherit; color: #9a9aa6; list-style: none; display: flex; align-items: center; justify-content: space-between; }
+  .wing details.custpick summary::-webkit-details-marker { display: none; }
+  .wing details.custpick summary .chip { width: 16px; height: 16px; border-radius: 4px; border: 1px solid rgba(255,255,255,.25); margin-right: 6px; flex: none; }
+  .wing details.custpick summary .arrow { margin-left: auto; opacity: .6; font-size: 10px; transition: transform .15s; }
+  .wing details.custpick[open] summary .arrow { transform: rotate(180deg); }
+  .wing details.custpick .pickrow { padding: 0 8px 8px; }
   .wing input[type=color] { -webkit-appearance: none; appearance: none; width: 42px; height: 32px; padding: 0; border: 1px solid rgba(255,255,255,.18); border-radius: 7px; background: transparent; cursor: pointer; flex: none; }
   .wing input[type=color]::-webkit-color-swatch-wrapper { padding: 2px; } .wing input[type=color]::-webkit-color-swatch { border: none; border-radius: 5px; } .wing input[type=color]::-moz-color-swatch { border: none; border-radius: 5px; }
   .wing input.hex { flex: 1; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px 8px; font: 600 12.5px ui-monospace, Menlo, Consolas, monospace; min-width: 0; text-transform: lowercase; }
@@ -1217,23 +1224,23 @@ function buildWingEditor() {
     el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"><span class="whereami">📍 Here</span></div>`
       + `<div style="${LBL};margin-top:2px">Preset themes</div><select class="wpreset">${presetOpts}</select>`
       + `<div style="${LBL}">Floor design</div><select class="wfloor">${floorOpts}</select>`
-      + `<div style="${LBL}">Floor tint (custom)</div><div class="pickrow"><input type="color" class="wfloorpick" value="${hex(s.floorTint)}"><input class="hex wfloorhex" value="${hex(s.floorTint)}" spellcheck="false" maxlength="7"></div>`
+      + `<details class="custpick" style="margin-top:6px"><summary><span class="chip" style="background:${hex(s.floorTint)}"></span>Floor tint (custom)<span class="arrow">▾</span></summary><div class="pickrow"><input type="color" class="wfloorpick" value="${hex(s.floorTint)}"><input class="hex wfloorhex" value="${hex(s.floorTint)}" spellcheck="false" maxlength="7"></div></details>`
       + `<div style="${LBL}">Wall pattern</div><select class="wpat">${patOpts}</select>`
       + `<div style="${LBL}">Wall color (preset)</div><select class="wwall">${wallOpts}</select>`
-      + `<div style="${LBL}">Wall color (custom)</div><div class="pickrow"><input type="color" class="wwallpick" value="${hex(s.wallColor)}"><input class="hex wwallhex" value="${hex(s.wallColor)}" spellcheck="false" maxlength="7"></div>`
+      + `<details class="custpick" style="margin-top:6px"><summary><span class="chip" style="background:${hex(s.wallColor)}"></span>Wall color (custom)<span class="arrow">▾</span></summary><div class="pickrow"><input type="color" class="wwallpick" value="${hex(s.wallColor)}"><input class="hex wwallhex" value="${hex(s.wallColor)}" spellcheck="false" maxlength="7"></div></details>`
       + `<div class="wbtns" style="margin-top:9px"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
     el.querySelector('.wname').onchange = (ev) => { s.name = ev.target.value.trim() || s.type; applyTheme(s); };
     el.querySelector('.wpreset').onchange = (ev) => { const p = PRESETS.find(x => x.id === ev.target.value); if (p) { s.floorType = p.floor; s.wallColor = p.wall; s.wallRoughness = p.rough; s.wallMetalness = p.metal; s.lightColor = p.light; s.lightIntensity = p.li; s.accent = p.accent; applyTheme(s); buildWingEditor(); } };
     el.querySelector('.wfloor').onchange = (ev) => { s.floorType = ev.target.value; applyTheme(s); };
     el.querySelector('.wpat').onchange = (ev) => { s.wallPattern = ev.target.value; applyTheme(s); };
-    const wp = el.querySelector('.wwallpick'), wh = el.querySelector('.wwallhex'), wsel = el.querySelector('.wwall');
-    const setWall = (v, commit) => { s.wallColor = v; wp.value = hex(v); wh.value = hex(v); wsel.value = String(v); applyTheme(s, commit); };
+    const wp = el.querySelector('.wwallpick'), wh = el.querySelector('.wwallhex'), wsel = el.querySelector('.wwall'), wchip = el.querySelector('.wwallpick').closest('details').querySelector('.chip');
+    const setWall = (v, commit) => { s.wallColor = v; wp.value = hex(v); wh.value = hex(v); wsel.value = String(v); wchip.style.background = hex(v); applyTheme(s, commit); };
     wsel.onchange = (ev) => setWall(parseInt(ev.target.value, 10), true);
     wp.oninput = () => setWall(parseInt(wp.value.slice(1), 16), false);
     wp.onchange = () => setWall(parseInt(wp.value.slice(1), 16), true);
     wh.onchange = () => { const v = normHex(wh.value); if (v) setWall(parseInt(v.slice(1), 16), true); else wh.value = hex(s.wallColor); };
-    const fp = el.querySelector('.wfloorpick'), fh = el.querySelector('.wfloorhex');
-    const setTint = (v, commit) => { s.floorTint = v; fp.value = hex(v); fh.value = hex(v); applyTheme(s, commit); };
+    const fp = el.querySelector('.wfloorpick'), fh = el.querySelector('.wfloorhex'), fchip = fp.closest('details').querySelector('.chip');
+    const setTint = (v, commit) => { s.floorTint = v; fp.value = hex(v); fh.value = hex(v); fchip.style.background = hex(v); applyTheme(s, commit); };
     fp.oninput = () => setTint(parseInt(fp.value.slice(1), 16), false);
     fp.onchange = () => setTint(parseInt(fp.value.slice(1), 16), true);
     fh.onchange = () => { const v = normHex(fh.value); if (v) setTint(parseInt(v.slice(1), 16), true); else fh.value = hex(s.floorTint); };
