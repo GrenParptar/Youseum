@@ -184,6 +184,7 @@
       <div class="controls touchonly" style="grid-template-columns:1fr">
         <div class="row">🕹️ Left thumb to move · drag right side to look</div>
         <div class="row">Tap <b style="color:#ffd27a">&nbsp;USE&nbsp;</b> to fill a frame, or face a wall for options (hall, wing, extend, title)</div>
+        <div class="row">Tap a video (without dragging) to mute/unmute it</div>
         <div class="row">☰ Menu for media, rooms, music &amp; saving</div>
       </div>
       <button id="start" class="btn primary">Enter the museum</button>
@@ -1140,11 +1141,14 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('mousedown', (e) => { if (document.pointerLockElement === canvas) { if (e.button === 2) { if (lookingAt) buildAtFrame('wing', lookingAt); else buildAtWall('wing'); } else interact(); } else if (paused && !lightboxOpen && !ctxOpen) resume(); });
 /* touch */
 const joyEl = document.getElementById('joy'), knob = document.getElementById('knob'); let joyId = null, joyX = 0, joyY = 0; const joyR = 55; let lookId = null, lastLX = 0, lastLY = 0;
+// Tracked from the look-touch's start so touchend can tell a stationary tap (mute/unmute whatever
+// video is centre-screen — the touch equivalent of pressing M) apart from a drag-to-look gesture.
+let lookStartX = 0, lookStartY = 0, lookStartT = 0;
 const joyCenter = () => { const r = joyEl.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
-addEventListener('touchstart', (e) => { if (!inTour || lightboxOpen || ctxOpen) return; for (const t of e.changedTouches) { const c = joyCenter(); if (joyId === null && Math.hypot(t.clientX - c.x, t.clientY - c.y) < 110) { joyId = t.identifier; updJoy(t, c); if (GT.active) GT.stop(); } else if (lookId === null && !(t.target && t.target.closest && t.target.closest('button'))) { lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
+addEventListener('touchstart', (e) => { if (!inTour || lightboxOpen || ctxOpen) return; for (const t of e.changedTouches) { const c = joyCenter(); if (joyId === null && Math.hypot(t.clientX - c.x, t.clientY - c.y) < 110) { joyId = t.identifier; updJoy(t, c); if (GT.active) GT.stop(); } else if (lookId === null && !(t.target && t.target.closest && t.target.closest('button'))) { lookId = t.identifier; lastLX = t.clientX; lastLY = t.clientY; lookStartX = t.clientX; lookStartY = t.clientY; lookStartT = performance.now(); } } }, { passive: false });
 addEventListener('touchmove', (e) => { if (lightboxOpen || ctxOpen) return; for (const t of e.changedTouches) { if (t.identifier === joyId) { e.preventDefault(); updJoy(t, joyCenter()); } else if (t.identifier === lookId) { if (GT.active) GT.stop(); yaw -= (t.clientX - lastLX) * 0.005; pitch = Math.max(-1.45, Math.min(1.45, pitch - (t.clientY - lastLY) * 0.005)); lastLX = t.clientX; lastLY = t.clientY; } } }, { passive: false });
-function endTouch(e) { for (const t of e.changedTouches) { if (t.identifier === joyId) { joyId = null; joyX = joyY = 0; knob.style.transform = 'translate(0,0)'; } if (t.identifier === lookId) lookId = null; } }
-addEventListener('touchend', endTouch); addEventListener('touchcancel', endTouch);
+function endTouch(e, cancelled) { for (const t of e.changedTouches) { if (t.identifier === joyId) { joyId = null; joyX = joyY = 0; knob.style.transform = 'translate(0,0)'; } if (t.identifier === lookId) { if (!cancelled && inTour && !lightboxOpen && !ctxOpen && Math.hypot(t.clientX - lookStartX, t.clientY - lookStartY) < 12 && performance.now() - lookStartT < 350) toggleMute(); lookId = null; } } }
+addEventListener('touchend', (e) => endTouch(e, false)); addEventListener('touchcancel', (e) => endTouch(e, true));
 function updJoy(t, c) { let dx = t.clientX - c.x, dy = t.clientY - c.y; const d = Math.hypot(dx, dy); if (d > joyR) { dx *= joyR / d; dy *= joyR / d; } knob.style.transform = `translate(${dx}px,${dy}px)`; joyX = dx / joyR; joyY = dy / joyR; }
 // Fire a HUD button on touchstart (not click): mobile browsers don't synthesize a click for a
 // second-finger tap while another finger is already down (e.g. on the joystick), so a plain click

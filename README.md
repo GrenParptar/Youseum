@@ -37,7 +37,7 @@ A self‑contained, **first‑person virtual museum** you fill with your own pho
 | `T` / `⌫` (facing a wall) | Shortcut to add/edit or remove that wall's heading |
 | `Esc` | Pause & free the cursor (use the map/menu to jump around) |
 
-**Touch:** left thumb to move, drag the right side to look. Face a wall or the floor and tap **USE** to open its options menu (build hall/wing, wall colour, floor design, heading). The **☰** menu holds everything else, including per‑room floor and wall pickers.
+**Touch:** left thumb to move, drag the right side to look. Face a wall or the floor and tap **USE** to open its options menu (build hall/wing, wall colour, floor design, heading). Tap a video without dragging to mute/unmute it. The **☰** menu holds everything else, including per‑room floor and wall pickers.
 
 ## How your media is stored
 
