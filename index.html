@@ -307,7 +307,10 @@ const HEADH = 0.28; // height of the black lintel band above a doorway; the room
 const EXTEND_STEP = 4.2;
 // The freestanding "showcase" display cube built in the main wing's centre: a single square of
 // four solid walls, each exactly one picture frame in width, that visitors walk around.
-const SHOWCASE_W = 2.6, SHOWCASE_H = 3.3;
+const SHOWCASE_W = 2.6, SHOWCASE_H = 3.6;
+// Cap on the showcase art's rendered height (well under what a portrait-oriented image could
+// otherwise reach) so it can never grow tall enough to run into the heading above it.
+const SHOWCASE_MAXARTH = 1.5;
 // A hall that doesn't have room for its full HALLLEN can still be built shortened, docking straight
 // into whatever it runs into instead of refusing outright. MIN_HALL_LEN is the shortest such hall
 // worth building; MIN_DOCK_SPAN is the narrowest doorway worth opening into whatever it docked into.
@@ -326,6 +329,7 @@ const presetById = (id) => PRESETS.find(s => s.id === id) || PRESETS[0];
 const STYLES = PRESETS;
 const styleById = presetById;
 const SIDES = ['N', 'S', 'E', 'W'], OPP = { N: 'S', S: 'N', E: 'W', W: 'E' };
+const SIDE_NAME = { N: 'North', S: 'South', E: 'East', W: 'West' };
 const spaces = new Map(); const connections = []; let nextId = 0;
 let showSectionTitles = true;
 const YAWFOR = { N: 0, S: Math.PI, E: -Math.PI / 2, W: Math.PI / 2 };
@@ -355,7 +359,7 @@ function roundRect(x, a, b, w, h, r) { x.beginPath(); x.moveTo(a + r, b); x.arcT
 function drawPlate(f) { const x = f.plate.ctx; x.clearRect(0, 0, 512, 110); if (!f.filled && !f.title) { f.plateMesh.visible = false; f.plate.tex.needsUpdate = true; return; } f.plateMesh.visible = true; x.fillStyle = '#ece6d8'; roundRect(x, 6, 6, 500, 98, 12); x.fill(); x.strokeStyle = '#c9c0ac'; x.lineWidth = 2; x.stroke(); x.fillStyle = '#2a2a2a'; x.textAlign = 'center'; x.font = f.title ? '600 40px Georgia, serif' : 'italic 30px Georgia, serif'; x.fillText(f.title || 'Untitled', 256, 60); f.plate.tex.needsUpdate = true; }
 
 const loader = new THREE.TextureLoader(); const frames = []; const frameById = new Map();
-function addFrame(id, x, y, z, ry, maxHalf) {
+function addFrame(id, x, y, z, ry, maxHalf, maxArtH) {
   const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.y = ry; scene.add(g);
   const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), shadowMat); shadow.position.set(0.04, -0.04, -0.02); g.add(shadow);
   const border = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), frameMat); border.position.z = 0.005; g.add(border);
@@ -363,15 +367,19 @@ function addFrame(id, x, y, z, ry, maxHalf) {
   const mat = new THREE.MeshBasicMaterial({ map: placeholderTex() }); const art = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat); art.position.z = 0.02; g.add(art);
   const plate = makePlate(); const plateMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.18), new THREE.MeshBasicMaterial({ map: plate.tex, transparent: true })); plateMesh.position.z = 0.02; g.add(plateMesh);
   const lightbar = new THREE.Mesh(new THREE.BoxGeometry(1, 0.05, 0.14), new THREE.MeshStandardMaterial({ color: 0xfff4e0, emissive: 0xfff0d0, emissiveIntensity: 0.55 })); g.add(lightbar);
-  const f = { id, group: g, art, border, matte, mat, plate, plateMesh, lightbar, shadow, video: null, srcURL: null, title: '', filled: false, maxHalf: (maxHalf ?? Infinity), baseMaxHalf: (maxHalf ?? Infinity) };
+  const f = { id, group: g, art, border, matte, mat, plate, plateMesh, lightbar, shadow, video: null, srcURL: null, title: '', filled: false, maxHalf: (maxHalf ?? Infinity), baseMaxHalf: (maxHalf ?? Infinity), maxArtH: (maxArtH ?? Infinity) };
   frames.push(f); frameById.set(id, f); sizeFrame(f, 1.7, 1.2); drawPlate(f); return f;
 }
 // maxHalf caps the frame's outer (border) half-width so a frame placed near a doorway or corner
 // shrinks to fit its wall instead of bleeding into the door jamb / a perpendicular wall's frame.
-// Remembers the natural (uncapped) size so reclampSideCorners() can redo just the cap later, when a
-// nearby corner's door state changes, without needing to know the media's aspect ratio again.
+// maxArtH similarly caps the ART height — unused by ordinary room walls (they're tall enough that it
+// never binds) but keeps the showcase's short walls from letting a portrait-oriented image grow tall
+// enough to run into its heading. Remembers the natural (uncapped) size so reclampSideCorners() can
+// redo just the cap later, when a nearby corner's door state changes, without needing to know the
+// media's aspect ratio again.
 function sizeFrame(f, w, h) { f.natW = w; f.natH = h; let s = Math.min(2.8 / w, 2.0 / h, 1.7);
   if (isFinite(f.maxHalf)) { const capArt = 2 * f.maxHalf - 0.32; if (capArt > 0.2 && w * s > capArt) s = capArt / w; }
+  if (isFinite(f.maxArtH) && h * s > f.maxArtH) s = f.maxArtH / h;
   w *= s; h *= s; f.art.scale.set(w, h, 1); f.matte.scale.set(w + 0.14, h + 0.14, 1); f.border.scale.set(w + 0.32, h + 0.32, 1); f.shadow.scale.set(w + 0.32, h + 0.32, 1); f.lightbar.position.set(0, h / 2 + 0.28, 0.16); f.lightbar.scale.x = w * 0.7; f.plateMesh.position.y = -(h / 2 + 0.30); f.plateMesh.scale.x = Math.min(Math.max(w * 0.65, 0.5), 1.4); }
 function fitAspect(f, a) { let h = 1.4, w = h * a; if (w > 2.8) { w = 2.8; h = w / a; } if (h > 2.0) { h = 2.0; w = h * a; } sizeFrame(f, w, h); }
 function removeFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; } if (audibleVideo === f) audibleVideo = null; scene.remove(f.group); const i = frames.indexOf(f); if (i >= 0) frames.splice(i, 1); frameById.delete(f.id); if (!resizingDB) DB.del(f.id); }
@@ -379,7 +387,7 @@ function removeFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.sr
 // addFrame's visuals but is popped straight back out of the global frames/frameById bookkeeping so
 // it never shows up in raycasting, fill counts, or DB persistence — its media is only ever a live
 // copy of whatever it's currently cycling to, never something a visitor hangs themselves.
-function addStandaloneFrame(id, x, y, z, ry, maxHalf) { const f = addFrame(id, x, y, z, ry, maxHalf); frames.pop(); frameById.delete(id); f.art.userData.showcase = true; return f; }
+function addStandaloneFrame(id, x, y, z, ry, maxHalf, maxArtH) { const f = addFrame(id, x, y, z, ry, maxHalf, maxArtH); frames.pop(); frameById.delete(id); f.art.userData.showcase = true; return f; }
 function disposeStandaloneFrame(f) { if (!f) return; stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; } if (audibleVideo === f) audibleVideo = null; scene.remove(f.group); }
 
 /* ===== spaces, walls, doorways ===== */
@@ -440,8 +448,8 @@ function updateShowcaseHeading(s) {
 }
 function positionShowcaseHeading(s, side, m) {
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2, x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
-  const w = SHOWCASE_W - 0.6; m.scale.set(w, w / 4, 1);
-  const off = T / 2 + 0.06, y = SHOWCASE_H - 0.45;
+  const w = SHOWCASE_W - 0.9; m.scale.set(w, w / 4, 1);
+  const off = T / 2 + 0.06, y = SHOWCASE_H - 0.4;
   if (side === 'N') { m.position.set(cx, y, z0 - off); m.rotation.y = Math.PI; }
   else if (side === 'S') { m.position.set(cx, y, z1 + off); m.rotation.y = 0; }
   else if (side === 'E') { m.position.set(x1 + off, y, cz); m.rotation.y = Math.PI / 2; }
@@ -479,11 +487,13 @@ function buildShowcase(s) {
   const maxHalf = half - 0.4;
   s.showcaseMeshes = meshes;
   s.showcaseFrames = {
-    N: addStandaloneFrame(s.id + ':showcase:N', cx, 1.75, z0 - T / 2 - 0.04, Math.PI, maxHalf),
-    S: addStandaloneFrame(s.id + ':showcase:S', cx, 1.75, z1 + T / 2 + 0.04, 0, maxHalf),
-    E: addStandaloneFrame(s.id + ':showcase:E', x1 + T / 2 + 0.04, 1.75, cz, Math.PI / 2, maxHalf),
-    W: addStandaloneFrame(s.id + ':showcase:W', x0 - T / 2 - 0.04, 1.75, cz, -Math.PI / 2, maxHalf),
+    N: addStandaloneFrame(s.id + ':showcase:N', cx, 1.75, z0 - T / 2 - 0.04, Math.PI, maxHalf, SHOWCASE_MAXARTH),
+    S: addStandaloneFrame(s.id + ':showcase:S', cx, 1.75, z1 + T / 2 + 0.04, 0, maxHalf, SHOWCASE_MAXARTH),
+    E: addStandaloneFrame(s.id + ':showcase:E', x1 + T / 2 + 0.04, 1.75, cz, Math.PI / 2, maxHalf, SHOWCASE_MAXARTH),
+    W: addStandaloneFrame(s.id + ':showcase:W', x0 - T / 2 - 0.04, 1.75, cz, -Math.PI / 2, maxHalf, SHOWCASE_MAXARTH),
   };
+  for (const sd of SIDES) s.showcaseFrames[sd].art.userData.showcaseSide = sd;
+  if (!s.showcaseWallScopes) s.showcaseWallScopes = { N: null, S: null, E: null, W: null };
   s.showcaseHeadingMeshes = {};
   for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', s.accent), transparent: true, depthWrite: false })); positionShowcaseHeading(s, sd, m); scene.add(m); s.showcaseHeadingMeshes[sd] = m; }
   updateShowcaseHeading(s);
@@ -877,20 +887,22 @@ async function extendSpace(id, side) {
 const gifHost = document.createElement('div'); gifHost.style.cssText = 'position:fixed;left:0;bottom:0;width:8px;height:8px;overflow:hidden;pointer-events:none;z-index:-1;'; document.body.appendChild(gifHost);
 const gifAnims = []; let audibleVideo = null;
 function setAudibleVideo(f) { audibleVideo = f; for (const fr of frames) if (fr.video) fr.video.muted = (fr !== f); }
-function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.dead = true; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); a.img?.remove(); a.frames = null; a.tex.dispose?.(); f.gif = null; }
+function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.dead = true; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); a.img?.remove(); a.frames = null; a.tex?.dispose?.(); a.prevTex?.dispose?.(); f.gif = null; }
 function applyImage(f, url) { stopGif(f); loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (f.video) { f.video.pause(); f.video = null; } f.mat.map = t; f.mat.needsUpdate = true; fitAspect(f, t.image.width / t.image.height); f.filled = true; f.srcURL = url; drawPlate(f); updateCount(); }); }
 function applyVideo(f, url) { stopGif(f); const v = document.createElement('video'); v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play().catch(() => {}); const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; f.mat.map = t; f.mat.needsUpdate = true; f.video = v; f.srcURL = url; v.addEventListener('loadedmetadata', () => fitAspect(f, (v.videoWidth || 16) / (v.videoHeight || 9))); f.filled = true; drawPlate(f); updateCount(); }
 function applyGif(f, url) {
-  if (f.video) { f.video.pause(); f.video = null; } stopGif(f);
-  // Upload GIF frames as a DataTexture (raw pixels), NOT via a 2D canvas. On iOS a 2D canvas
-  // used as a WebGL texture renders black once it grows large enough to become GPU-backed, so
-  // small GIFs worked and larger ones went black. Raw-pixel upload bypasses the canvas entirely.
-  const tex = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1, THREE.RGBAFormat);
-  tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.flipY = false; tex.needsUpdate = true;
-  f.mat.map = tex; f.mat.needsUpdate = true; f.srcURL = url; f.filled = true;
+  if (f.video) { f.video.pause(); f.video = null; }
+  // Detach (but don't dispose) any in-flight GIF decode for this frame. prevTex snapshots whatever's
+  // CURRENTLY on screen — a plain image, or an older still-decoding/decoded GIF's texture — and stays
+  // there untouched until decodeGifNow()/gifImgFallback() below actually has a new frame ready to
+  // swap in, so nothing ever flashes to black while a GIF decodes (decoding is serialized across the
+  // whole app, so this can take a moment).
+  if (f.gif) { const old = f.gif; old.dead = true; const i = gifAnims.indexOf(old); if (i >= 0) gifAnims.splice(i, 1); old.img?.remove(); old.frames = null; f.gif = null; }
+  f.srcURL = url; f.filled = true;
   // We decode GIF frames ourselves in JS and drive them on the render clock (the browser won't
-  // animate a hidden <img> on iOS, and WebCodecs ImageDecoder isn't in Safari).
-  const anim = { mode: 'dec', frame: f, tex, frames: [], w: 0, h: 0, idx: 0, acc: 0, lastIdx: -1 };
+  // animate a hidden <img> on iOS, and WebCodecs ImageDecoder isn't in Safari). tex starts null —
+  // nothing is assigned to f.mat.map until a real frame is ready (see decodeGifNow/gifImgFallback).
+  const anim = { mode: 'dec', frame: f, tex: null, prevTex: f.mat.map, frames: [], w: 0, h: 0, idx: 0, acc: 0, lastIdx: -1 };
   f.gif = anim; gifAnims.push(anim); decodeGif(url, anim);
   drawPlate(f); updateCount();
 }
@@ -903,7 +915,7 @@ function updateGif(a, dt, inView) {
     while (a.acc >= a.frames[a.idx].dur && g++ < a.frames.length) { a.acc -= a.frames[a.idx].dur; a.idx = (a.idx + 1) % a.frames.length; }
     if (a.idx !== a.lastIdx) { a.lastIdx = a.idx; a.tex.image.data = a.frames[a.idx].data; a.tex.needsUpdate = true; }
   } else if (a.mode === 'img') {
-    if (inView && a.img && a.img.naturalWidth) { a.cx.drawImage(a.img, 0, 0, a.cv.width, a.cv.height); a.tex.needsUpdate = true; }
+    if (inView && a.tex && a.img && a.img.naturalWidth) { a.cx.drawImage(a.img, 0, 0, a.cv.width, a.cv.height); a.tex.needsUpdate = true; }
   }
 }
 // GIF rows are top-down; WebGL texture v=0 is the bottom. Flip rows so the frame renders upright
@@ -930,7 +942,7 @@ async function decodeGifNow(url, anim) {
     // frame into an undersized GPU allocation and renders black). Per-frame updates keep this size.
     const tex = new THREE.DataTexture(anim.frames[0].data, g.width, g.height, THREE.RGBAFormat);
     tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.flipY = false; tex.needsUpdate = true;
-    anim.tex.dispose?.(); anim.tex = tex; anim.frame.mat.map = tex; anim.frame.mat.needsUpdate = true;
+    anim.prevTex?.dispose?.(); anim.prevTex = null; anim.tex = tex; anim.frame.mat.map = tex; anim.frame.mat.needsUpdate = true;
     anim.idx = 0; anim.acc = 0; anim.lastIdx = 0;
     await new Promise(r => setTimeout(r, 0)); // yield between GIFs (setTimeout, not rAF, so the queue never stalls if rAF is throttled)
   } catch (e) { console.warn('GIF decode failed, using static fallback', e); gifImgFallback(url, anim); }
@@ -941,10 +953,11 @@ function gifImgFallback(url, anim) {
   if (anim.dead) return;
   const cv = document.createElement('canvas'); cv.width = 2; cv.height = 2; const cx = cv.getContext('2d');
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.generateMipmaps = false;
-  anim.tex.dispose?.(); anim.tex = tex; anim.cv = cv; anim.cx = cx; anim.mode = 'img';
-  anim.frame.mat.map = tex; anim.frame.mat.needsUpdate = true;
+  anim.cv = cv; anim.cx = cx; anim.mode = 'img';
   const img = document.createElement('img'); img.src = url; gifHost.appendChild(img);
-  const show = () => { if (anim.dead) return; cv.width = img.naturalWidth || 320; cv.height = img.naturalHeight || 240; fitAspect(anim.frame, cv.width / cv.height); };
+  // Don't swap the visible texture (still holding whatever was on the frame before) until the
+  // fallback image has actually loaded — otherwise this blank canvas would itself flash first.
+  const show = () => { if (anim.dead) return; cv.width = img.naturalWidth || 320; cv.height = img.naturalHeight || 240; fitAspect(anim.frame, cv.width / cv.height); cx.drawImage(img, 0, 0, cv.width, cv.height); tex.needsUpdate = true; anim.prevTex?.dispose?.(); anim.prevTex = null; anim.tex = tex; anim.frame.mat.map = tex; anim.frame.mat.needsUpdate = true; };
   img.decode?.().then(show).catch(() => {}); img.onload = show; anim.img = img;
 }
 // Minimal GIF87a/89a decoder → composited frames as ImageData, downscaled to maxDim, with delays.
@@ -1037,7 +1050,7 @@ async function deleteSpace(id, opts = {}) {
   if (opts.confirm && !confirm('Delete "' + s.name + '" and everything in it?')) return;
   GT.stop();
   let snap = null;
-  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseLabel: s.showcaseLabel, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern }, conns: [], media }; }
+  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseLabel: s.showcaseLabel, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes ? { ...s.showcaseWallScopes } : null }, conns: [], media }; }
   const involved = connections.filter(c => c.a === id || spaceOnOtherSide(c) === id);
   const reseal = involved.map(c => ({ otherId: (c.a === id) ? spaceOnOtherSide(c) : c.a, otherSide: (c.a === id) ? OPP[c.side] : c.side, lo: c.lo, hi: c.hi, doorMeshes: c.doorMeshes }));
   if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }));
@@ -1062,7 +1075,7 @@ async function rebuildSpace(snap) {
 const updateCount = () => document.getElementById('count').textContent = `${frames.filter(f => f.filled).length} / ${frames.length} filled`;
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
-const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseLabel: s.showcaseLabel, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
+const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseLabel: s.showcaseLabel, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
 
 /* ===== sample art ===== */
 function drawSample(g, w, h, k) { const pals = [['#ff9a4d', '#ffd86b'], ['#4d79ff', '#9b6bff'], ['#0f2027', '#2c5364'], ['#34d399', '#a7f3d0'], ['#f472b6', '#c084fc'], ['#0ea5e9', '#2dd4bf']][k % 6]; const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, pals[0]); grad.addColorStop(1, pals[1]); g.fillStyle = grad; g.fillRect(0, 0, w, h); g.globalAlpha = .18; for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#000000'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, 0, 7); g.fill(); } g.globalAlpha = 1; if (k === 5) { g.fillStyle = 'rgba(0,0,0,.32)'; g.fillRect(w * .12, h * .34, w * .76, h * .32); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 60px Georgia, serif'; g.fillText('Your Museum', w / 2, h * .47); g.font = '400 26px system-ui'; g.fillText('face a wall & click to build', w / 2, h * .57); } else { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 8; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, Math.random() * h); g.bezierCurveTo(w * .3, Math.random() * h, w * .6, Math.random() * h, w, Math.random() * h); g.stroke(); } } }
@@ -1083,17 +1096,25 @@ function showcaseApply(f, src) {
   if (!src) { if (f.filled) clearStandaloneFrame(f); return; }
   if (f.srcURL === src.srcURL) return; // already showing this piece — skip the reload/flicker
   const type = src.video ? 'video' : src.gif ? 'gif' : 'image';
-  stopGif(f); if (f.video) { f.video.pause(); f.video = null; }
+  // applyImage/applyVideo/applyGif each already stop whatever this frame was previously showing —
+  // applyGif in particular defers that until its first decoded frame is ready, so cycling INTO a gif
+  // doesn't flash black; stopping it here too would defeat that.
   f.title = src.title || '';
   applyByType(f, type, src.srcURL);
 }
-// Refresh the showcase from its current scope — all four faces show the SAME piece at once, as if
-// showcasing that one item, then move on to another random pick next cycle.
+// Refresh the showcase from its current scope. Any wall WITHOUT its own override shares one random
+// pick (all showing the same piece together, as if showcasing that one item); a wall with its own
+// override cycles independently from its own scope's pool instead.
 function cycleShowcase() {
   const s = mainWing(); if (!s || !s.showcaseFrames) return;
-  const pool = showcasePool(s.showcaseScope);
-  const pick = pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
-  for (const sd of SIDES) showcaseApply(s.showcaseFrames[sd], pick);
+  const wallScopes = s.showcaseWallScopes || {};
+  const sharedPool = showcasePool(s.showcaseScope);
+  const sharedPick = sharedPool.length ? sharedPool[Math.floor(Math.random() * sharedPool.length)] : null;
+  for (const sd of SIDES) {
+    const override = wallScopes[sd];
+    if (override) { const pool = showcasePool(override); showcaseApply(s.showcaseFrames[sd], pool.length ? pool[Math.floor(Math.random() * pool.length)] : null); }
+    else showcaseApply(s.showcaseFrames[sd], sharedPick);
+  }
 }
 let showcaseTimer = null;
 function startShowcase() { cycleShowcase(); if (!showcaseTimer) showcaseTimer = setInterval(cycleShowcase, 7000); }
@@ -1134,16 +1155,16 @@ const runBtnEl = document.getElementById('runBtn');
 hudPress(runBtnEl, () => { touchRun = !touchRun; runBtnEl.classList.toggle('on', touchRun); });
 
 /* ===== look + interact ===== */
-const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null, lookingFloor = null, lookingShowcase = false;
+const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null, lookingFloor = null, lookingShowcase = null;
 const promptEl = document.getElementById('prompt'), crossEl = document.getElementById('crosshair');
 function updateLook() {
   raycaster.setFromCamera({ x: 0, y: 0 }, camera); const arts = frames.map(f => f.art);
   const mw = mainWing(); const scArts = mw?.showcaseFrames ? Object.values(mw.showcaseFrames).map(f => f.art) : [];
   const flrs = []; spaces.forEach(s => { if (s.floor) flrs.push(s.floor); }); const objs = [...arts, ...scArts, ...wallMeshes, ...flrs];
-  const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null; lookingFloor = null; lookingShowcase = false;
+  const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null; lookingFloor = null; lookingShowcase = null;
   if (hit) { const ai = arts.indexOf(hit.object);
     if (ai >= 0 && hit.distance < 6.5) lookingAt = frames[ai];
-    else if (hit.object.userData.showcase && hit.distance < 6.5) lookingShowcase = true;
+    else if (hit.object.userData.showcaseSide && hit.distance < 6.5) lookingShowcase = hit.object.userData.showcaseSide;
     else if (hit.object.userData.add && hit.distance < 5.5) { const ad = hit.object.userData.add; const u = (ad.side === 'N' || ad.side === 'S') ? hit.point.x : hit.point.z; lookingWall = { id: ad.id, side: ad.side, u }; }
     else if (hit.object.userData.floorId && hit.distance < 8) lookingFloor = { id: hit.object.userData.floorId }; }
   if (inTour && !GT.active && lookingAt) { crossEl.classList.add('active'); if (!lookingAt.filled) showPrompt('<b>' + (isTouch ? 'USE' : 'Click') + '</b> to hang a photo, video or GIF'); else showPrompt(isTouch ? '<b>USE</b> to view' : '<b>Click</b> to view · <b>R-click</b> build a wing here · <b>⌫</b> clear'); }
@@ -1153,7 +1174,7 @@ function updateLook() {
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
 }
 const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
-function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else openLightbox(f); } else if (lookingShowcase) openCtxMenu('showcase', null); else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
+function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else openLightbox(f); } else if (lookingShowcase) openCtxMenu('showcase', { side: lookingShowcase }); else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
 function buildAtWall(type) { if (!lookingWall) return; const p = spaces.get(lookingWall.id); if (p) buildSpaceFrom(type, p, lookingWall.side, lookingWall.u); }
 function frameSpace(f) { return spaces.get(f.id.split(':')[0]); }
 function frameSide(f) { return f.id.split(':')[1]; }
@@ -1216,13 +1237,35 @@ function ctxAddColorPicker(parent, label, current, onPick) {
 function openCtxMenu(kind, target) {
   if (kind === 'showcase') {
     const s = mainWing(); if (!s) return;
-    ctxTarget = { kind: 'showcase', id: s.id };
+    const side = target?.side || null;
+    s.showcaseWallScopes = s.showcaseWallScopes || { N: null, S: null, E: null, W: null };
+    ctxTarget = { kind: 'showcase', id: s.id, side };
     const optsEl = document.getElementById('ctxopts'); optsEl.innerHTML = '';
-    document.getElementById('ctxtitle').textContent = 'Showcase';
-    const scope = s.showcaseScope || 'all';
-    const items = [{ label: 'Whole museum (random)', value: 'all', on: scope === 'all' }]
-      .concat(sortedSpaces().filter(o => o.id !== s.id).map(o => ({ label: o.name, value: o.id, on: scope === o.id })));
-    ctxAddSwatches(optsEl, 'Cycles media from', items, true, (it) => { s.showcaseScope = it.value; saveConfig(); cycleShowcase(); buildWingEditor(); toast('Showcase now cycling ' + (it.value === 'all' ? 'the whole museum' : it.label)); });
+    document.getElementById('ctxtitle').textContent = 'Showcase' + (side ? ' · ' + SIDE_NAME[side] + ' wall' : '');
+    // Default to whichever mode already matches this wall's current state, so opening the menu never
+    // silently changes anything until a pick is actually made.
+    let applyMode = (side && s.showcaseWallScopes[side]) ? 'wall' : 'all';
+    const seg = document.createElement('div'); seg.className = 'seg'; seg.style.marginBottom = '4px';
+    const bWall = document.createElement('button'); bWall.textContent = 'This wall only';
+    const bAll = document.createElement('button'); bAll.textContent = 'Whole showcase';
+    const syncSeg = () => { bWall.classList.toggle('on', applyMode === 'wall'); bAll.classList.toggle('on', applyMode === 'all'); };
+    const listHost = document.createElement('div');
+    const renderList = () => {
+      listHost.innerHTML = '';
+      const scope = applyMode === 'wall' ? (s.showcaseWallScopes[side] || 'all') : (s.showcaseScope || 'all');
+      const items = [{ label: 'Whole museum (random)', value: 'all', on: scope === 'all' }]
+        .concat(sortedSpaces().filter(o => o.id !== s.id).map(o => ({ label: o.name, value: o.id, on: scope === o.id })));
+      ctxAddSwatches(listHost, 'Cycles media from', items, true, (it) => {
+        if (applyMode === 'wall') s.showcaseWallScopes[side] = it.value === 'all' ? null : it.value;
+        else s.showcaseScope = it.value;
+        saveConfig(); cycleShowcase(); buildWingEditor();
+        const where = applyMode === 'wall' ? SIDE_NAME[side] + ' wall' : 'Showcase';
+        toast(where + ' now cycling ' + (it.value === 'all' ? 'the whole museum' : it.label));
+      });
+    };
+    bWall.onclick = () => { applyMode = 'wall'; syncSeg(); renderList(); };
+    bAll.onclick = () => { applyMode = 'all'; syncSeg(); renderList(); };
+    syncSeg(); seg.append(bWall, bAll); optsEl.append(seg, listHost); renderList();
     ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
     if (document.pointerLockElement) document.exitPointerLock();
     return;
@@ -1278,7 +1321,7 @@ async function exportGallery() {
   const recs = await DB.all(); const out = []; for (const r of recs) { if (r.blob) out.push({ frame: r.frame, type: r.type, title: r.title || '', mime: r.blob.type, data: await blobToDataURL(r.blob) }); else out.push({ frame: r.frame, config: r.config }); } const json = JSON.stringify({ app: 'my-museum', version: 5, records: out }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = filename; a.click(); toast(`Exported ${out.length} item${out.length !== 1 ? 's' : ''} (incl. media + music)`); }
 document.getElementById('importFile').addEventListener('change', async (e) => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; try { const data = JSON.parse(await file.text()); const recs = data.records || data.items; if (!recs) throw 0; toast('Importing…'); for (const it of recs) { if (it.config) { await DB.put({ frame: it.frame, config: it.config }); continue; } const blob = await (await fetch(it.data)).blob(); await DB.put({ frame: it.frame, type: it.type, blob, title: it.title || '' }); } location.hash = ''; setTimeout(() => location.reload(), 400); } catch { toast('Could not read that file'); } });
 async function saveGallery() { for (const f of frames) if (f.filled) { const rec = await DB.get(f.id); if (rec) { rec.title = f.title; await DB.put(rec); } } await saveConfig(); toast('Saved to this browser'); }
-function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint, s.showcaseScope, s.showcaseLabel, s.showcaseWallColor, s.showcaseWallPattern]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
+function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint, s.showcaseScope, s.showcaseLabel, s.showcaseWallColor, s.showcaseWallPattern, s.showcaseWallScopes]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
 function readShare() { const m = location.hash.match(/m=([^&]+)/); if (!m) return null; try { return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); } catch { return null; } }
 
 /* ===== music ===== */
@@ -1490,11 +1533,11 @@ function buildFromConfig(cfg) {
     let s;
     if (o.floorType) {
       // New format: independent floor/wall
-      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern };
+      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes };
     } else {
       // Old format: styleId only — convert to new format
       const preset = presetById(o.styleId);
-      s = { id: o.id, type: o.type, name: o.name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern };
+      s = { id: o.id, type: o.type, name: o.name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes };
     }
     spaces.set(s.id, s);
   });
@@ -1516,7 +1559,7 @@ async function boot() {
       return { id: a[0], type: a[1], name: a[2], floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: a[4], x1: a[5], z0: a[6], z1: a[7], sectionTitles: a[8] || { N: '', S: '', E: '', W: '' } };
     } else {
       // New format: [id, type, name, floorType, wallColor, wallRoughness, wallMetalness, lightColor, lightIntensity, accent, x0, x1, z0, z1, sectionTitles]
-      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' }, wallPattern: a[15], floorTint: a[16], showcaseScope: a[17] || 'all', showcaseLabel: a[18], showcaseWallColor: a[19], showcaseWallPattern: a[20] };
+      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' }, wallPattern: a[15], floorTint: a[16], showcaseScope: a[17] || 'all', showcaseLabel: a[18], showcaseWallColor: a[19], showcaseWallPattern: a[20], showcaseWallScopes: a[21] };
     }
   }), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
   else {
