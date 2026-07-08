@@ -477,6 +477,7 @@ function positionShowcaseHeading(s, side, m) {
 function buildShowcase(s) {
   if (s.showcaseScope == null) s.showcaseScope = 'all';
   if (s.showcaseLabel == null) s.showcaseLabel = 'Showcase';
+  if (s.showcaseEnabled == null) s.showcaseEnabled = true;
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2;
   const x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
   s.showcaseWallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: 0.9 });
@@ -500,7 +501,21 @@ function buildShowcase(s) {
   s.showcaseHeadingMeshes = {};
   for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', s.accent), transparent: true, depthWrite: false })); positionShowcaseHeading(s, sd, m); scene.add(m); s.showcaseHeadingMeshes[sd] = m; }
   updateShowcaseHeading(s);
-  cycleShowcase();
+  if (s.showcaseEnabled === false) setShowcaseVisible(s, false); else cycleShowcase();
+}
+// Toggling the showcase off hides its walls/frames/heading AND clears whatever media those frames
+// were holding (stopping any GIF decode / video playback), so a user testing whether the showcase is
+// the source of a stutter gets a clean "it's just not there" rather than merely invisible geometry
+// still cycling and decoding in the background.
+function setShowcaseVisible(s, on) {
+  if (s.showcaseMeshes) for (const m of s.showcaseMeshes) m.visible = on;
+  if (s.showcaseHeadingMeshes) for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; if (m) m.visible = on && showSectionTitles && !!(s.showcaseLabel ?? 'Showcase').trim(); }
+  if (s.showcaseFrames) for (const sd of SIDES) { const f = s.showcaseFrames[sd]; if (f) f.group.visible = on; }
+}
+function setShowcaseEnabled(s, on) {
+  s.showcaseEnabled = on;
+  if (!on) { if (s.showcaseFrames) for (const sd of SIDES) clearStandaloneFrame(s.showcaseFrames[sd]); setShowcaseVisible(s, false); }
+  else { setShowcaseVisible(s, true); cycleShowcase(); }
 }
 // Clearance a frame's outer edge should keep from a segment end so it doesn't overlap a door jamb
 // or, at a corner, a perpendicular wall's frame — plus a visible strip of plain wall beyond that, so
@@ -1083,7 +1098,7 @@ const updateCount = () => {
 };
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
-const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseLabel: s.showcaseLabel, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
+const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseLabel: s.showcaseLabel, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
 
 /* ===== sample art ===== */
 function drawSample(g, w, h, k) { const pals = [['#ff9a4d', '#ffd86b'], ['#4d79ff', '#9b6bff'], ['#0f2027', '#2c5364'], ['#34d399', '#a7f3d0'], ['#f472b6', '#c084fc'], ['#0ea5e9', '#2dd4bf']][k % 6]; const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, pals[0]); grad.addColorStop(1, pals[1]); g.fillStyle = grad; g.fillRect(0, 0, w, h); g.globalAlpha = .18; for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#000000'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, 0, 7); g.fill(); } g.globalAlpha = 1; if (k === 5) { g.fillStyle = 'rgba(0,0,0,.32)'; g.fillRect(w * .12, h * .34, w * .76, h * .32); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 60px Georgia, serif'; g.fillText('Your Museum', w / 2, h * .47); g.font = '400 26px system-ui'; g.fillText('face a wall & click to build', w / 2, h * .57); } else { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 8; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, Math.random() * h); g.bezierCurveTo(w * .3, Math.random() * h, w * .6, Math.random() * h, w, Math.random() * h); g.stroke(); } } }
@@ -1114,7 +1129,7 @@ function showcaseApply(f, src) {
 // pick (all showing the same piece together, as if showcasing that one item); a wall with its own
 // override cycles independently from its own scope's pool instead.
 function cycleShowcase() {
-  const s = mainWing(); if (!s || !s.showcaseFrames) return;
+  const s = mainWing(); if (!s || !s.showcaseFrames || s.showcaseEnabled === false) return;
   const wallScopes = s.showcaseWallScopes || {};
   const sharedPool = showcasePool(s.showcaseScope);
   const sharedPick = sharedPool.length ? sharedPool[Math.floor(Math.random() * sharedPool.length)] : null;
@@ -1173,7 +1188,7 @@ function updateLook() {
   // Isolated in its own try/catch: a problem with the showcase must never be able to take down
   // interaction with ordinary frames/walls/floors, which are computed below regardless.
   let scArts = [];
-  try { const mw = mainWing(); if (mw?.showcaseFrames) scArts = Object.values(mw.showcaseFrames).map(f => f.art); } catch (e) {}
+  try { const mw = mainWing(); if (mw?.showcaseFrames && mw.showcaseEnabled !== false) scArts = Object.values(mw.showcaseFrames).map(f => f.art); } catch (e) {}
   const flrs = []; spaces.forEach(s => { if (s.floor) flrs.push(s.floor); }); const objs = [...arts, ...scArts, ...wallMeshes, ...flrs];
   const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null; lookingFloor = null; lookingShowcase = null;
   if (hit) { const ai = arts.indexOf(hit.object);
@@ -1452,6 +1467,7 @@ function buildWingEditor() {
     const showcaseWallPatOpts = [['smooth', 'Smooth'], ['brick', 'Brick']].map(([v, n]) => `<option value="${v}"${showcaseWallPatternVal === v ? ' selected' : ''}>${n}</option>`).join('');
     const showcaseBlock = isMainWing
       ? `<div style="${LBL};margin-top:2px">🖼 Showcase (centre display)</div>`
+        + `<div class="musicrow" style="margin-top:0"><label class="switch"><input type="checkbox" class="wshowenabled" ${s.showcaseEnabled !== false ? 'checked' : ''}><span></span></label><span>Show the showcase display</span></div>`
         + `<div style="${LBL};margin-top:0;color:#9a9aa6">Cycles media from</div><select class="wshowcase">${showcaseOpts}</select>`
         + `<div style="${LBL}">Label above the frames</div><input class="wname wshowlabel" value="${(s.showcaseLabel ?? 'Showcase').replace(/"/g, '&quot;')}" maxlength="24" placeholder="(no label)">`
         + `<div class="musicrow" style="margin-top:6px"><label class="switch"><input type="checkbox" class="wshowmatch" ${showcaseWallMatched ? 'checked' : ''}><span></span></label><span>Showcase wall matches main room</span></div>`
@@ -1475,6 +1491,7 @@ function buildWingEditor() {
       + `<div class="wbtns" style="margin-top:9px"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
     el.querySelector('.wname').onchange = (ev) => { s.name = ev.target.value.trim() || s.type; applyTheme(s); };
     if (isMainWing) {
+      el.querySelector('.wshowenabled').onchange = (ev) => { setShowcaseEnabled(s, ev.target.checked); saveConfig(); };
       el.querySelector('.wshowcase').onchange = (ev) => { s.showcaseScope = ev.target.value; saveConfig(); cycleShowcase(); };
       el.querySelector('.wshowlabel').onchange = (ev) => { s.showcaseLabel = ev.target.value.trim(); updateShowcaseHeading(s); saveConfig(); };
       el.querySelector('.wshowmatch').onchange = (ev) => {
@@ -1584,11 +1601,11 @@ function buildFromConfig(cfg) {
     let s;
     if (o.floorType) {
       // New format: independent floor/wall
-      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes };
+      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
     } else {
       // Old format: styleId only — convert to new format
       const preset = presetById(o.styleId);
-      s = { id: o.id, type: o.type, name: o.name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes };
+      s = { id: o.id, type: o.type, name: o.name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
     }
     spaces.set(s.id, s);
   });
