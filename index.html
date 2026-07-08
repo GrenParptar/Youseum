@@ -1077,9 +1077,8 @@ async function rebuildSpace(snap) {
 // Reflects whichever scope is selected in "Place them in" — the whole museum, or just the room
 // you're currently standing in — so the count always matches what clicking "Add" would fill.
 const updateCount = () => {
-  const inRoom = addScope === 'room';
-  const pool = inRoom ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames;
-  document.getElementById('count').textContent = `${pool.filter(f => f.filled).length} / ${pool.length} filled` + (inRoom ? ' in this room' : '');
+  const pool = addScope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames;
+  document.getElementById('count').textContent = `${pool.filter(f => f.filled).length} / ${pool.length} filled`;
 };
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
