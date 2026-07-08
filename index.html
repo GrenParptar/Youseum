@@ -80,6 +80,10 @@
   #useBtn { position: absolute; right: 34px; bottom: 64px; width: 84px; height: 84px; border-radius: 50%; border: 2px solid rgba(255,210,122,.8); background: rgba(255,210,122,.18); color: #ffe6b0; font: 700 16px inherit; letter-spacing: 1px; } #useBtn:active { background: rgba(255,210,122,.4); }
   #runBtn { position: absolute; right: 40px; bottom: 162px; width: 72px; height: 54px; border-radius: 14px; border: 2px solid rgba(180,210,255,.7); background: rgba(120,150,255,.18); color: #cfe0ff; font: 700 13px inherit; letter-spacing: 1px; } #runBtn:active { background: rgba(120,150,255,.4); } #runBtn.on { border-color: #b6f0c4; background: rgba(120,240,160,.34); color: #d6ffe4; }
   #toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%) translateY(20px); background: rgba(20,20,26,.96); border: 1px solid rgba(255,255,255,.12); color: #f0f0f4; padding: 11px 18px; border-radius: 10px; font-size: 14px; z-index: 32; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: 80vw; text-align: center; } #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  /* iOS Safari can silently refuse to open a file input's native picker via a scripted .click() when
+     the input is display:none (it's no longer in the render tree at all) — kept in layout but
+     invisible/zero-size instead, which is the reliable cross-browser way to hide a file input. */
+  .hiddeninput { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
   #drop { position: fixed; inset: 0; z-index: 18; pointer-events: none; display: grid; place-items: center; background: rgba(255,210,122,.10); border: 3px dashed rgba(255,210,122,.7); opacity: 0; transition: opacity .15s; } #drop.show { opacity: 1; } #drop span { background: rgba(12,12,16,.9); color: #ffd27a; padding: 14px 22px; border-radius: 12px; font-size: 16px; font-weight: 600; }
   /* Lightbox — closer view of a piece */
   #lightbox { position: fixed; inset: 0; z-index: 34; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(0,0,0,.62); backdrop-filter: blur(2px); padding: 3vh 3vw; }
@@ -210,9 +214,9 @@
   </div>
   <div id="toast"></div>
   <div id="loading">Building your museum…</div>
-  <input id="file" type="file" accept="image/*,video/*" multiple style="display:none" />
-  <input id="importFile" type="file" accept=".museum,application/json" style="display:none" />
-  <input id="musicFile" type="file" accept="audio/*" style="display:none" />
+  <input id="file" type="file" accept="image/*,video/*" multiple class="hiddeninput" />
+  <input id="importFile" type="file" accept=".museum,application/json" class="hiddeninput" />
+  <input id="musicFile" type="file" accept="audio/*" class="hiddeninput" />
 
 <script type="module">
 import * as THREE from 'three';
