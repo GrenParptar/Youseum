@@ -1342,8 +1342,22 @@ async function exportGallery() {
   const typed = prompt('Name this export file:', 'my-museum');
   if (typed === null) return; // cancelled
   const filename = museumFileName(typed);
+  // Where supported (desktop Chrome/Edge), let the user pick a folder via the native Save dialog —
+  // requested right after the prompt, before any of the (potentially slow) packing work below, so it
+  // still runs on the click's original user-activation. Safari/Firefox/mobile don't implement this
+  // API at all, so they transparently keep the plain <a download> behaviour further down.
+  let handle = null;
+  if (window.showSaveFilePicker) {
+    try { handle = await window.showSaveFilePicker({ suggestedName: filename, types: [{ description: 'Museum file', accept: { 'application/json': ['.museum'] } }] }); }
+    catch (e) { if (e.name === 'AbortError') { toast('Export cancelled'); return; } handle = null; }
+  }
   toast('Packing your museum…');
-  const recs = await DB.all(); const out = []; for (const r of recs) { if (r.blob) out.push({ frame: r.frame, type: r.type, title: r.title || '', mime: r.blob.type, data: await blobToDataURL(r.blob) }); else out.push({ frame: r.frame, config: r.config }); } const json = JSON.stringify({ app: 'my-museum', version: 5, records: out }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = filename; a.click(); toast(`Exported ${out.length} item${out.length !== 1 ? 's' : ''} (incl. media + music)`); }
+  const recs = await DB.all(); const out = []; for (const r of recs) { if (r.blob) out.push({ frame: r.frame, type: r.type, title: r.title || '', mime: r.blob.type, data: await blobToDataURL(r.blob) }); else out.push({ frame: r.frame, config: r.config }); }
+  const json = JSON.stringify({ app: 'my-museum', version: 5, records: out });
+  if (handle) { const w = await handle.createWritable(); await w.write(json); await w.close(); }
+  else { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = filename; a.click(); }
+  toast(`Exported ${out.length} item${out.length !== 1 ? 's' : ''} (incl. media + music)`);
+}
 document.getElementById('importFile').addEventListener('change', async (e) => {
   const file = e.target.files[0]; e.target.value = ''; if (!file) return;
   let recs;
