@@ -1555,7 +1555,10 @@ function openOverview() {
   document.getElementById('overview').classList.add('open');
 }
 document.getElementById('ovClose').onclick = () => document.getElementById('overview').classList.remove('open');
-function teleport(id) { GT.stop(); const s = spaces.get(id); if (!s) return; camera.position.set(s.cx, 1.7, s.cz); yaw = 0; pitch = 0; vel.set(0, 0, 0); lastId = null; }
+// Same "pulled back from centre" spot the main wing spawns into at boot — its centre is occupied
+// by the showcase, so landing dead-centre (like any other room) would drop the camera inside it.
+function spawnPoint(s) { if (mainWing()?.id === s.id) return { x: s.cx, z: s.cz + Math.max(2.5, Math.min(6, (s.z1 - s.cz) - 1.4)) }; return { x: s.cx, z: s.cz }; }
+function teleport(id) { GT.stop(); const s = spaces.get(id); if (!s) return; const p = spawnPoint(s); camera.position.set(p.x, 1.7, p.z); yaw = 0; pitch = 0; vel.set(0, 0, 0); lastId = null; }
 function currentId() { for (const s of spaces.values()) if (camera.position.x >= s.x0 - 0.3 && camera.position.x <= s.x1 + 0.3 && camera.position.z >= s.z0 - 0.3 && camera.position.z <= s.z1 + 0.3) return s.id; return null; }
 
 /* ===== minimap ===== */
@@ -1663,8 +1666,9 @@ async function boot() {
     for (const r of mediaRecs) { const f = frameById.get(r.frame); if (!f) continue; if (r.title) f.title = r.title; if (r.blob) applyByType(f, r.type, URL.createObjectURL(r.blob)); else drawPlate(f); }
   }
   // Spawn pulled back from the main wing's centre so the showcase reads as a small structure inside
-  // a larger room on first look, rather than filling the view like one big wall.
-  const mw = mainWing(); if (mw) camera.position.set(mw.cx, 1.7, mw.cz + Math.max(2.5, Math.min(6, (mw.z1 - mw.cz) - 1.4)));
+  // a larger room on first look, rather than filling the view like one big wall (same spot "Go to"
+  // lands you at via spawnPoint, so first load and teleporting back both feel the same).
+  const mw = mainWing(); if (mw) { const p = spawnPoint(mw); camera.position.set(p.x, 1.7, p.z); }
   applyFrameClamps(); buildWingEditor(); updateCount(); updateUndoBtn();
   if (!share && !config && !hadMedia) await addSamples();
   startShowcase();
