@@ -215,7 +215,7 @@
   </div>
   <div id="toast"></div>
   <div id="loading">Building your museum…</div>
-  <input id="file" type="file" accept="image/*,video/*" multiple class="hiddeninput" />
+  <input id="file" type="file" accept="image/*,video/*,.avi" multiple class="hiddeninput" />
   <input id="importFile" type="file" accept=".museum,application/json" class="hiddeninput" />
   <input id="musicFile" type="file" accept="audio/*" class="hiddeninput" />
 
@@ -907,7 +907,11 @@ const gifAnims = []; let audibleVideo = null;
 function setAudibleVideo(f) { audibleVideo = f; for (const fr of frames) if (fr.video) fr.video.muted = (fr !== f); }
 function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.dead = true; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); a.img?.remove(); a.frames = null; a.tex?.dispose?.(); a.prevTex?.dispose?.(); f.gif = null; }
 function applyImage(f, url) { stopGif(f); loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (f.video) { f.video.pause(); f.video = null; } f.mat.map = t; f.mat.needsUpdate = true; fitAspect(f, t.image.width / t.image.height); f.filled = true; f.srcURL = url; drawPlate(f); updateCount(); }); }
-function applyVideo(f, url) { stopGif(f); const v = document.createElement('video'); v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play().catch(() => {}); const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; f.mat.map = t; f.mat.needsUpdate = true; f.video = v; f.srcURL = url; v.addEventListener('loadedmetadata', () => fitAspect(f, (v.videoWidth || 16) / (v.videoHeight || 9))); f.filled = true; drawPlate(f); updateCount(); }
+function applyVideo(f, url) { stopGif(f); const v = document.createElement('video'); v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play().catch(() => {}); const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; f.mat.map = t; f.mat.needsUpdate = true; f.video = v; f.srcURL = url; v.addEventListener('loadedmetadata', () => fitAspect(f, (v.videoWidth || 16) / (v.videoHeight || 9)));
+  // Some containers (.avi in particular) have no native decoder in most browsers regardless of the
+  // codec inside — that fails silently as a black/frozen frame otherwise, so surface it plainly.
+  v.addEventListener('error', () => { if (f.video === v) toast("This video can't be played in your browser — try converting it (e.g. to MP4)"); });
+  f.filled = true; drawPlate(f); updateCount(); }
 function applyGif(f, url) {
   if (f.video) { f.video.pause(); f.video = null; }
   // Detach (but don't dispose) any in-flight GIF decode for this frame. prevTex snapshots whatever's
@@ -1039,7 +1043,10 @@ function lzwDecode(minCode, data, pixelCount) {
   }
   return out;
 }
-const mediaType = (file) => file.type === 'image/gif' ? 'gif' : file.type.startsWith('video') ? 'video' : 'image';
+// .avi files are frequently reported with no MIME type at all (or a non-"video/*" one) by the OS,
+// so file.type alone isn't reliable — fall back to the extension.
+const isVideoFile = (file) => file.type.startsWith('video') || /\.avi$/i.test(file.name);
+const mediaType = (file) => file.type === 'image/gif' ? 'gif' : isVideoFile(file) ? 'video' : 'image';
 const applyByType = (f, type, url) => { type === 'video' ? applyVideo(f, url) : type === 'gif' ? applyGif(f, url) : applyImage(f, url); };
 async function assignFile(f, file, record = true) {
   let prev; if (record) prev = { rec: await DB.get(f.id), title: f.title };
@@ -1351,7 +1358,7 @@ const dropEl = document.getElementById('drop'); let dragDepth = 0;
 addEventListener('dragenter', (e) => { e.preventDefault(); dragDepth++; dropEl.classList.add('show'); });
 addEventListener('dragover', (e) => e.preventDefault());
 addEventListener('dragleave', (e) => { e.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; dropEl.classList.remove('show'); } });
-addEventListener('drop', async (e) => { e.preventDefault(); dragDepth = 0; dropEl.classList.remove('show'); const files = [...e.dataTransfer.files].filter(f => /^(image|video)\//.test(f.type)); if (!files.length) return; let f = (inTour && lookingAt && !lookingAt.filled) ? lookingAt : nextEmpty(addScope); let n = 0; for (const file of files) { if (!f) break; await assignFile(f, file); n++; f = nextEmpty(addScope); } toast(`Hung ${n} item${n > 1 ? 's' : ''}`); });
+addEventListener('drop', async (e) => { e.preventDefault(); dragDepth = 0; dropEl.classList.remove('show'); const files = [...e.dataTransfer.files].filter(f => /^(image|video)\//.test(f.type) || /\.avi$/i.test(f.name)); if (!files.length) return; let f = (inTour && lookingAt && !lookingAt.filled) ? lookingAt : nextEmpty(addScope); let n = 0; for (const file of files) { if (!f) break; await assignFile(f, file); n++; f = nextEmpty(addScope); } toast(`Hung ${n} item${n > 1 ? 's' : ''}`); });
 
 /* ===== export / import / save / share ===== */
 const blobToDataURL = (b) => new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(b); });
