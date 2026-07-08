@@ -1335,7 +1335,19 @@ async function exportGallery() {
   const filename = museumFileName(typed);
   toast('Packing your museum…');
   const recs = await DB.all(); const out = []; for (const r of recs) { if (r.blob) out.push({ frame: r.frame, type: r.type, title: r.title || '', mime: r.blob.type, data: await blobToDataURL(r.blob) }); else out.push({ frame: r.frame, config: r.config }); } const json = JSON.stringify({ app: 'my-museum', version: 5, records: out }); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = filename; a.click(); toast(`Exported ${out.length} item${out.length !== 1 ? 's' : ''} (incl. media + music)`); }
-document.getElementById('importFile').addEventListener('change', async (e) => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; try { const data = JSON.parse(await file.text()); const recs = data.records || data.items; if (!recs) throw 0; toast('Importing…'); for (const it of recs) { if (it.config) { await DB.put({ frame: it.frame, config: it.config }); continue; } const blob = await (await fetch(it.data)).blob(); await DB.put({ frame: it.frame, type: it.type, blob, title: it.title || '' }); } location.hash = ''; setTimeout(() => location.reload(), 400); } catch { toast('Could not read that file'); } });
+document.getElementById('importFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+  let recs;
+  try { const data = JSON.parse(await file.text()); recs = data.records || data.items; if (!recs) throw 0; }
+  catch { toast('Could not read that file'); return; }
+  toast('Importing…');
+  // Parsing and storage failures get distinct messages — a corrupt/foreign file looks nothing like a
+  // browser refusing to persist data (e.g. Safari Private Browsing heavily restricts or disables
+  // IndexedDB), and conflating them as "could not read that file" wrongly blames the .museum file.
+  try { for (const it of recs) { if (it.config) { await DB.put({ frame: it.frame, config: it.config }); continue; } const blob = await (await fetch(it.data)).blob(); await DB.put({ frame: it.frame, type: it.type, blob, title: it.title || '' }); } }
+  catch { toast('Your browser is blocking storage here — try outside private/incognito mode'); return; }
+  location.hash = ''; setTimeout(() => location.reload(), 400);
+});
 async function saveGallery() { for (const f of frames) if (f.filled) { const rec = await DB.get(f.id); if (rec) { rec.title = f.title; await DB.put(rec); } } await saveConfig(); toast('Saved to this browser'); }
 function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint, s.showcaseScope, s.showcaseLabel, s.showcaseWallColor, s.showcaseWallPattern, s.showcaseWallScopes]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
 function readShare() { const m = location.hash.match(/m=([^&]+)/); if (!m) return null; try { return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); } catch { return null; } }
