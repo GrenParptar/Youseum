@@ -1179,7 +1179,18 @@ function updateLook() {
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
 }
 const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
-function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; fileInput.click(); } else openLightbox(f); } else if (lookingShowcase) openCtxMenu('showcase', { side: lookingShowcase }); else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
+function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; requestFilePicker(); } else openLightbox(f); } else if (lookingShowcase) openCtxMenu('showcase', { side: lookingShowcase }); else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
+// Opening a native file picker is a more privileged action than the plain DOM changes interact()
+// otherwise makes (opening the lightbox, a wall/floor/showcase menu) — those are all fine to fire
+// straight from the USE button's touchstart handler (see hudPress below), but iOS Safari can
+// silently refuse to honor fileInput.click() when it's called from touchstart specifically, even
+// though the exact same call works from a genuine click (e.g. the ☰ menu's own "Add photos" button).
+// On touch, defer the actual click() to this gesture's touchend, which WebKit does reliably honor;
+// on desktop (already a real click/mousedown), there's no such restriction so it fires immediately.
+let pendingFilePick = false;
+function requestFilePicker() { if (isTouch) pendingFilePick = true; else fileInput.click(); }
+addEventListener('touchend', () => { if (pendingFilePick) { pendingFilePick = false; fileInput.click(); } }, { passive: true });
+addEventListener('touchcancel', () => { pendingFilePick = false; });
 function buildAtWall(type) { if (!lookingWall) return; const p = spaces.get(lookingWall.id); if (p) buildSpaceFrom(type, p, lookingWall.side, lookingWall.u); }
 function frameSpace(f) { return spaces.get(f.id.split(':')[0]); }
 function frameSide(f) { return f.id.split(':')[1]; }
