@@ -1114,16 +1114,25 @@ function showcasePool(scope) {
   for (const fr of frames) { if (!fr.filled) continue; if (scope && scope !== 'all') { const sp = frameSpace(fr); if (!sp || sp.id !== scope) continue; } pool.push(fr); }
   return pool;
 }
-function clearStandaloneFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video = null; } f.mat.map = placeholderTex(); f.mat.needsUpdate = true; sizeFrame(f, 1.7, 1.2); f.filled = false; f.title = ''; f.srcURL = null; drawPlate(f); }
+// Showcase frames never own their media — they only borrow references onto whatever a live frame
+// elsewhere in the museum is already showing, so clearing one must never stop/dispose the shared
+// video or GIF (that would kill it for the frame that actually owns it too). Just drop the refs.
+function clearStandaloneFrame(f) { f.mat.map = placeholderTex(); f.mat.needsUpdate = true; sizeFrame(f, 1.7, 1.2); f.filled = false; f.title = ''; f.srcURL = null; f.video = null; f.gif = null; drawPlate(f); }
+function frameAspect(fr) { if (fr.video) return (fr.video.videoWidth || 16) / (fr.video.videoHeight || 9); if (fr.gif) return (fr.gif.w || 1) / (fr.gif.h || 1); const img = fr.mat.map?.image; return img && img.width ? img.width / img.height : 16 / 9; }
 function showcaseApply(f, src) {
   if (!src) { if (f.filled) clearStandaloneFrame(f); return; }
-  if (f.srcURL === src.srcURL) return; // already showing this piece — skip the reload/flicker
-  const type = src.video ? 'video' : src.gif ? 'gif' : 'image';
-  // applyImage/applyVideo/applyGif each already stop whatever this frame was previously showing —
-  // applyGif in particular defers that until its first decoded frame is ready, so cycling INTO a gif
-  // doesn't flash black; stopping it here too would defeat that.
-  f.title = src.title || '';
-  applyByType(f, type, src.srcURL);
+  if (f.srcURL === src.srcURL) return; // already mirroring this piece — skip the reload/flicker
+  // Mirror src's already-decoded texture/video/gif directly rather than re-decoding it from its URL
+  // — src is already playing/decoded live elsewhere in the museum, and redoing that from scratch
+  // every 7s cycle (a from-scratch GIF parse, or spinning up a brand new <video> element) is what
+  // caused a stutter across the whole museum every time the showcase changed, regardless of where
+  // the camera was looking. updateGifs/updateVideoCulling know to keep src's media playing whenever
+  // ITS showcase mirror is on screen, even if src itself is out of view.
+  f.title = src.title || ''; f.srcURL = src.srcURL; f.filled = true;
+  f.video = src.video || null; f.gif = src.gif || null;
+  f.mat.map = src.mat.map; f.mat.needsUpdate = true;
+  fitAspect(f, frameAspect(src));
+  drawPlate(f);
 }
 // Refresh the showcase from its current scope. Any wall WITHOUT its own override shares one random
 // pick (all showing the same piece together, as if showcasing that one item); a wall with its own
@@ -1581,13 +1590,31 @@ const clock = new THREE.Clock(); const fwd = new THREE.Vector3(), right = new TH
 function collide(pos) { for (const b of colliders) { const cx = Math.max(b.min.x, Math.min(pos.x, b.max.x)), cz = Math.max(b.min.z, Math.min(pos.z, b.max.z)); const dx = pos.x - cx, dz = pos.z - cz, d2 = dx * dx + dz * dz; if (d2 < PR * PR) { if (d2 > 1e-6) { const d = Math.sqrt(d2); pos.x = cx + dx / d * PR; pos.z = cz + dz / d * PR; } else pos.x = cx + PR; } } }
 let lastId = null, mapTick = 0;
 const gifFrustum = new THREE.Frustum(); const gifProjM = new THREE.Matrix4(); const GIF_VIEW_DIST = 34;
+function pointInView(p) { return camera.position.distanceTo(p) < GIF_VIEW_DIST && gifFrustum.containsPoint(p); }
+function showcaseMirrors() { const mw = mainWing(); return mw?.showcaseFrames ? Object.values(mw.showcaseFrames) : []; }
 function updateGifs(dt) { if (!gifAnims.length) return; camera.updateMatrixWorld(); gifProjM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); gifFrustum.setFromProjectionMatrix(gifProjM);
-  for (const a of gifAnims) { const p = a.frame.group.position; const inView = camera.position.distanceTo(p) < GIF_VIEW_DIST && gifFrustum.containsPoint(p); updateGif(a, dt, inView); } }
+  const scFrames = showcaseMirrors();
+  for (const a of gifAnims) { let inView = pointInView(a.frame.group.position);
+    // The showcase mirrors this exact anim's texture onto its own frame — keep it animating if
+    // THAT'S what's on screen, even when the original owning frame elsewhere isn't.
+    if (!inView) for (const sf of scFrames) if (sf.gif === a && pointInView(sf.group.position)) { inView = true; break; }
+    updateGif(a, dt, inView); } }
+// Every playing <video> decodes continuously even when its frame is nowhere near the camera, and
+// browsers keep decoding+uploading at full rate regardless — with several videos in a museum that's
+// a steady background cost. Pause videos once they're far/offscreen (mirrors the GIF culling above)
+// and resume only the ones we paused ourselves, so a user's own pause via the crosshair prompt sticks.
+function updateVideoCulling() { if (!frames.some(f => f.video)) return; camera.updateMatrixWorld(); gifProjM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); gifFrustum.setFromProjectionMatrix(gifProjM);
+  const scFrames = showcaseMirrors();
+  for (const f of frames) { const v = f.video; if (!v) continue; let inView = pointInView(f.group.position);
+    if (!inView) for (const sf of scFrames) if (sf.video === v && pointInView(sf.group.position)) { inView = true; break; }
+    if (inView) { if (v._culled) { v._culled = false; v.play().catch(() => {}); } }
+    else if (!v.paused) { v._culled = true; v.pause(); } } }
 function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.05); camera.rotation.set(pitch, yaw, 0);
   if (inTour && !paused && !lightboxOpen && !ctxOpen) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight'] || touchRun) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
     camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); updateWingHighlight(); if (addScope === 'room') updateCount(); } }
   if (++mapTick % 3 === 0 && (inTour || paused)) drawMap();
   updateGifs(dt);
+  if (mapTick % 5 === 0) updateVideoCulling();
   (composer || renderer).render(scene, camera);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer?.setSize(innerWidth, innerHeight); });
