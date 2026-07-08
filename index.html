@@ -1074,7 +1074,13 @@ async function rebuildSpace(snap) {
   for (const rec of snap.media) { const f = frameById.get(rec.frame); if (f) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); DB.put(rec).catch(() => {}); drawPlate(f); } }
   applyFrameClamps(); saveConfig(); buildWingEditor(); updateCount();
 }
-const updateCount = () => document.getElementById('count').textContent = `${frames.filter(f => f.filled).length} / ${frames.length} filled`;
+// Reflects whichever scope is selected in "Place them in" — the whole museum, or just the room
+// you're currently standing in — so the count always matches what clicking "Add" would fill.
+const updateCount = () => {
+  const inRoom = addScope === 'room';
+  const pool = inRoom ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames;
+  document.getElementById('count').textContent = `${pool.filter(f => f.filled).length} / ${pool.length} filled` + (inRoom ? ' in this room' : '');
+};
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
 const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseLabel: s.showcaseLabel, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
@@ -1375,7 +1381,7 @@ document.getElementById('menuBtn').onclick = () => menu.classList.toggle('open')
 document.getElementById('menuClose').onclick = closeMenu;
 document.getElementById('start').onclick = enterTour;
 document.getElementById('startAdd').onclick = () => { addTarget = null; fileInput.click(); };
-document.querySelectorAll('#scopeSeg button').forEach(b => b.onclick = () => { addScope = b.dataset.scope; document.querySelectorAll('#scopeSeg button').forEach(x => x.classList.toggle('on', x === b)); });
+document.querySelectorAll('#scopeSeg button').forEach(b => b.onclick = () => { addScope = b.dataset.scope; document.querySelectorAll('#scopeSeg button').forEach(x => x.classList.toggle('on', x === b)); updateCount(); });
 let musicScope = 'global';
 menu.querySelectorAll('button[data-act]').forEach(b => b.onclick = () => { const a = b.dataset.act;
   if (a === 'add') { addTarget = null; fileInput.click(); } else if (a === 'save') saveGallery(); else if (a === 'share') shareLink(); else if (a === 'export') exportGallery(); else if (a === 'import') document.getElementById('importFile').click();
@@ -1545,7 +1551,7 @@ function updateGifs(dt) { if (!gifAnims.length) return; camera.updateMatrixWorld
   for (const a of gifAnims) { const p = a.frame.group.position; const inView = camera.position.distanceTo(p) < GIF_VIEW_DIST && gifFrustum.containsPoint(p); updateGif(a, dt, inView); } }
 function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.05); camera.rotation.set(pitch, yaw, 0);
   if (inTour && !paused && !lightboxOpen && !ctxOpen) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight'] || touchRun) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
-    camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); updateWingHighlight(); } }
+    camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); updateWingHighlight(); if (addScope === 'room') updateCount(); } }
   if (++mapTick % 3 === 0 && (inTour || paused)) drawMap();
   updateGifs(dt);
   (composer || renderer).render(scene, camera);
