@@ -173,7 +173,7 @@
   <div id="drop"><span>Drop photos &amp; videos to hang them</span></div>
   <div id="overlay">
     <div class="card">
-      <h1>My <span class="accent">Museum</span></h1>
+      <h1>You<span class="accent">seum</span></h1>
       <p class="sub">A private museum you walk through in first person. It starts as one room — hang your own photos &amp; videos, then grow it with picture-lined <b>halls</b> and gallery <b>wings</b>.</p>
       <div class="controls desktoponly">
         <div class="row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</div><div class="row"><kbd>Mouse</kbd> Look</div>
@@ -1213,7 +1213,7 @@ function updateLook() {
     else if (hit.object.userData.add && hit.distance < 5.5) { const ad = hit.object.userData.add; const u = (ad.side === 'N' || ad.side === 'S') ? hit.point.x : hit.point.z; lookingWall = { id: ad.id, side: ad.side, u }; }
     else if (hit.object.userData.floorId && hit.distance < 8) lookingFloor = { id: hit.object.userData.floorId }; }
   if (inTour && !GT.active && lookingAt) { crossEl.classList.add('active'); if (!lookingAt.filled) showPrompt('<b>' + (isTouch ? 'USE' : 'Click') + '</b> to hang a photo, video or GIF'); else showPrompt(isTouch ? '<b>USE</b> to view' : '<b>Click</b> to view · <b>R-click</b> build a wing here · <b>⌫</b> clear'); }
-  else if (inTour && !GT.active && lookingShowcase) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> to choose what the showcase shows' : '<b>Click</b> to choose what the showcase shows'); }
+  else if (inTour && !GT.active && lookingShowcase) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> for showcase options (label, what it shows)' : '<b>Click</b> for showcase options (label, what it shows)'); }
   else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> for wall options' : '<b>Click</b> for wall options (hall, wing, extend, heading)'); }
   else if (inTour && !GT.active && lookingFloor) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> to change the floor' : '<b>Click</b> to change the floor design'); }
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
@@ -1264,6 +1264,7 @@ function setWallHeading(lw, text) { const s = spaces.get(lw.id); if (!s) return;
   s.sectionTitles[side] = next; if (next && !showSectionTitles) { showSectionTitles = true; const cb = document.getElementById('sectionTitlesOn'); if (cb) cb.checked = true; spaces.forEach(updateSectionTitles); } else updateSectionTitles(s); saveConfig();
   pushUndo('wall heading', () => { const sp = spaces.get(lw.id); if (!sp) return; sp.sectionTitles = sp.sectionTitles || { N: '', S: '', E: '', W: '' }; sp.sectionTitles[side] = prev; updateSectionTitles(sp); saveConfig(); }); }
 function titleWall(lw = lookingWall) { if (!lw || !spaces.get(lw.id)) return; if (document.pointerLockElement === canvas) document.exitPointerLock(); setTimeout(() => { const t = prompt('Heading for this wall (leave blank to remove):', wallHeadingText(lw)); if (t !== null) setWallHeading(lw, t); if (!isTouch && started) canvas.requestPointerLock?.(); }, 60); }
+function titleShowcase(s = mainWing()) { if (!s) return; if (document.pointerLockElement === canvas) document.exitPointerLock(); setTimeout(() => { const t = prompt('Label above the showcase frames (leave blank to remove):', s.showcaseLabel ?? 'Showcase'); if (t !== null) { s.showcaseLabel = t.trim(); updateShowcaseHeading(s); saveConfig(); } if (!isTouch && started) canvas.requestPointerLock?.(); }, 60); }
 
 /* ===== context menu — options for the wall / floor you're looking at (opened with USE) ===== */
 let ctxOpen = false, ctxTarget = null;
@@ -1298,6 +1299,7 @@ function openCtxMenu(kind, target) {
     ctxTarget = { kind: 'showcase', id: s.id, side };
     const optsEl = document.getElementById('ctxopts'); optsEl.innerHTML = '';
     document.getElementById('ctxtitle').textContent = 'Showcase' + (side ? ' · ' + SIDE_NAME[side] + ' wall' : '');
+    ctxAddBtn(optsEl, '✎ Edit label', '', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleShowcase(s); });
     // Default to whichever mode already matches this wall's current state, so opening the menu never
     // silently changes anything until a pick is actually made.
     let applyMode = (side && s.showcaseWallScopes[side]) ? 'wall' : 'all';
@@ -1485,7 +1487,6 @@ function buildWingEditor() {
       ? `<div style="${LBL};margin-top:2px">🖼 Showcase (centre display)</div>`
         + `<div class="musicrow" style="margin-top:0"><label class="switch"><input type="checkbox" class="wshowenabled" ${s.showcaseEnabled !== false ? 'checked' : ''}><span></span></label><span>Show the showcase display</span></div>`
         + `<div style="${LBL};margin-top:0;color:#9a9aa6">Cycles media from</div><select class="wshowcase">${showcaseOpts}</select>`
-        + `<div style="${LBL}">Label above the frames</div><input class="wname wshowlabel" value="${(s.showcaseLabel ?? 'Showcase').replace(/"/g, '&quot;')}" maxlength="24" placeholder="(no label)">`
         + `<div class="musicrow" style="margin-top:6px"><label class="switch"><input type="checkbox" class="wshowmatch" ${showcaseWallMatched ? 'checked' : ''}><span></span></label><span>Showcase wall matches main room</span></div>`
         + `<div class="wshowwallcustom" style="display:${showcaseWallMatched ? 'none' : 'flex'};flex-direction:column;gap:6px;margin-top:4px">`
           + `<select class="wshowwallpat">${showcaseWallPatOpts}</select>`
@@ -1509,7 +1510,6 @@ function buildWingEditor() {
     if (isMainWing) {
       el.querySelector('.wshowenabled').onchange = (ev) => { setShowcaseEnabled(s, ev.target.checked); saveConfig(); };
       el.querySelector('.wshowcase').onchange = (ev) => { s.showcaseScope = ev.target.value; saveConfig(); cycleShowcase(); };
-      el.querySelector('.wshowlabel').onchange = (ev) => { s.showcaseLabel = ev.target.value.trim(); updateShowcaseHeading(s); saveConfig(); };
       el.querySelector('.wshowmatch').onchange = (ev) => {
         if (ev.target.checked) { s.showcaseWallColor = null; s.showcaseWallPattern = null; }
         else { s.showcaseWallColor = s.showcaseWallColor ?? s.wallColor; s.showcaseWallPattern = s.showcaseWallPattern ?? s.wallPattern; }
