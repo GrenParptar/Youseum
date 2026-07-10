@@ -343,6 +343,21 @@ const YAWFOR = { N: 0, S: Math.PI, E: -Math.PI / 2, W: Math.PI / 2 };
 const colliders = [];
 function box(cx, cy, cz, sx, sy, sz, mat, solid = true) { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat); m.position.set(cx, cy, cz); scene.add(m); if (solid) { const b = new THREE.Box3().setFromObject(m); m.userData.collider = b; colliders.push(b); } return m; }
 function removeBox(m) { if (!m) return; scene.remove(m); const b = m.userData.collider; if (b) { const i = colliders.indexOf(b); if (i >= 0) colliders.splice(i, 1); } const wi = wallMeshes.indexOf(m); if (wi >= 0) wallMeshes.splice(wi, 1); m.geometry?.dispose?.(); }
+// The ceiling light strip runs straight through a room's centre — which is exactly where the main
+// wing's showcase sits, putting its bright emissive fixture directly in view (and blown out by bloom)
+// whenever a user tilts up to read a showcase header. Split it into two segments with a gap over the
+// showcase instead, so the fixture never sits directly above it. Ordinary rooms/halls/wings (no
+// showcase) get the original single strip.
+function buildStrip(s, cx, cz, w, d, long) {
+  const full = long * .8;
+  if (s.type === 'room') {
+    const gap = SHOWCASE_W + 1.4, segLen = (full - gap) / 2;
+    if (segLen > 0.4) return (w >= d)
+      ? [box(cx - gap / 2 - segLen / 2, H - 0.18, cz, segLen, 0.12, 0.6, stripMat, false), box(cx + gap / 2 + segLen / 2, H - 0.18, cz, segLen, 0.12, 0.6, stripMat, false)]
+      : [box(cx, H - 0.18, cz - gap / 2 - segLen / 2, 0.6, 0.12, segLen, stripMat, false), box(cx, H - 0.18, cz + gap / 2 + segLen / 2, 0.6, 0.12, segLen, stripMat, false)];
+  }
+  return [box(cx, H - 0.18, cz, w >= d ? full : 0.6, 0.12, w >= d ? 0.6 : full, stripMat, false)];
+}
 const baseMat = new THREE.MeshStandardMaterial({ color: 0x201f1d, roughness: .85 });
 const stripMat = new THREE.MeshStandardMaterial({ color: 0xfff4dc, emissive: 0xfff0d0, emissiveIntensity: 1.1 });
 const doorTrimMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness: .7, metalness: .2 });
@@ -423,7 +438,7 @@ function buildSpaceBase(s) {
   s.floorMat = new THREE.MeshStandardMaterial({ map: floorTexFor(s.floorType, s), color: (s.floorTint != null ? s.floorTint : 0xffffff), roughness: fm.rough, metalness: fm.metal });
   const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), s.floorMat); fl.rotation.x = -Math.PI / 2; fl.position.set(cx, 0, cz); fl.userData.floorId = s.id; scene.add(fl); s.floor = fl;
   s.ceil = box(cx, H, cz, w, 0.3, d, ceilMat, false);
-  const long = Math.max(w, d); s.strip = box(cx, H - 0.18, cz, w >= d ? long * .8 : 0.6, 0.12, w >= d ? 0.6 : long * .8, stripMat, false);
+  const long = Math.max(w, d); s.strip = buildStrip(s, cx, cz, w, d, long);
   s.point = new THREE.PointLight(s.lightColor, spaceLightIntensity(s), 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
   s.spots = []; if (!LITE && s.type === 'room') for (const a of [['z', -1], ['z', 1], ['x', -1], ['x', 1]]) { const sp = new THREE.SpotLight(s.lightColor, 9, 15, 0.7, 0.6, 1.2); sp.position.set(cx + (a[0] === 'x' ? a[1] * 2.2 : 0), H - 0.4, cz + (a[0] === 'z' ? a[1] * 2.2 : 0)); sp.target.position.set(cx + (a[0] === 'x' ? a[1] * w / 2 : 0), 1.7, cz + (a[0] === 'z' ? a[1] * d / 2 : 0)); scene.add(sp, sp.target); s.spots.push(sp); }
   s.sectionTitles = s.sectionTitles || { N: '', S: '', E: '', W: '' }; s.sectionMeshes = {};
@@ -456,11 +471,12 @@ function updateShowcaseTheme(s) {
   s.showcaseWallMat.roughness = pattern === 'brick' ? 0.98 : 0.9;
   s.showcaseWallMat.needsUpdate = true;
 }
-// The editable "Showcase" label painted above the frame on all four showcase walls.
+// The editable wall header painted above each showcase frame — independent per wall, so each of the
+// four sides can carry its own text (defaults to "Showcase" until a user edits that specific wall).
+function showcaseHeadingText(s, sd) { return (s.showcaseHeadings?.[sd] ?? 'Showcase').trim(); }
 function updateShowcaseHeading(s) {
   if (!s.showcaseHeadingMeshes) return;
-  const txt = (s.showcaseLabel != null ? s.showcaseLabel : 'Showcase').trim();
-  for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, s.accent); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+  for (const sd of SIDES) { const txt = showcaseHeadingText(s, sd); const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, s.accent); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
 }
 function positionShowcaseHeading(s, side, m) {
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2, x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
@@ -476,7 +492,7 @@ function positionShowcaseHeading(s, side, m) {
 // on every side. Rebuilt (and re-centred) whenever the room's base is — e.g. after "Extend room".
 function buildShowcase(s) {
   if (s.showcaseScope == null) s.showcaseScope = 'all';
-  if (s.showcaseLabel == null) s.showcaseLabel = 'Showcase';
+  if (s.showcaseHeadings == null) s.showcaseHeadings = { N: 'Showcase', S: 'Showcase', E: 'Showcase', W: 'Showcase' };
   if (s.showcaseEnabled == null) s.showcaseEnabled = true;
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2;
   const x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
@@ -509,7 +525,7 @@ function buildShowcase(s) {
 // still cycling and decoding in the background.
 function setShowcaseVisible(s, on) {
   if (s.showcaseMeshes) for (const m of s.showcaseMeshes) m.visible = on;
-  if (s.showcaseHeadingMeshes) for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; if (m) m.visible = on && showSectionTitles && !!(s.showcaseLabel ?? 'Showcase').trim(); }
+  if (s.showcaseHeadingMeshes) for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; if (m) m.visible = on && showSectionTitles && !!showcaseHeadingText(s, sd); }
   if (s.showcaseFrames) for (const sd of SIDES) { const f = s.showcaseFrames[sd]; if (f) f.group.visible = on; }
 }
 function setShowcaseEnabled(s, on) {
@@ -1068,14 +1084,14 @@ const undoStack = [];
 function updateUndoBtn() { const b = document.getElementById('undoBtn'); if (!b) return; b.disabled = undoStack.length === 0; b.textContent = undoStack.length ? '↶ Undo: ' + undoStack[undoStack.length - 1].label : '↶ Nothing to undo'; }
 function pushUndo(label, fn) { undoStack.push({ label, fn }); if (undoStack.length > 40) undoStack.shift(); updateUndoBtn(); }
 async function doUndo() { const u = undoStack.pop(); if (!u) { toast('Nothing to undo'); updateUndoBtn(); return; } try { await u.fn(); toast('Undid: ' + u.label); } catch (e) { console.error(e); toast('Could not undo that'); } updateUndoBtn(); }
-function disposeSpace(s) { if (s.showcaseFrames) { for (const sd of SIDES) disposeStandaloneFrame(s.showcaseFrames[sd]); s.showcaseFrames = null; } if (s.showcaseMeshes) { s.showcaseMeshes.forEach(removeBox); s.showcaseMeshes = null; } if (s.showcaseHeadingMeshes) { for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } s.showcaseHeadingMeshes = null; } for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); removeBox(s.strip); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
+function disposeSpace(s) { if (s.showcaseFrames) { for (const sd of SIDES) disposeStandaloneFrame(s.showcaseFrames[sd]); s.showcaseFrames = null; } if (s.showcaseMeshes) { s.showcaseMeshes.forEach(removeBox); s.showcaseMeshes = null; } if (s.showcaseHeadingMeshes) { for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } s.showcaseHeadingMeshes = null; } for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); s.strip.forEach(removeBox); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
 async function deleteSpace(id, opts = {}) {
   if (spaces.size <= 1) { toast('Keep at least one room'); return; }
   const s = spaces.get(id); if (!s) return;
   if (opts.confirm && !confirm('Delete "' + s.name + '" and everything in it?')) return;
   GT.stop();
   let snap = null;
-  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseLabel: s.showcaseLabel, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes ? { ...s.showcaseWallScopes } : null }, conns: [], media }; }
+  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings ? { ...s.showcaseHeadings } : null, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes ? { ...s.showcaseWallScopes } : null }, conns: [], media }; }
   const involved = connections.filter(c => c.a === id || spaceOnOtherSide(c) === id);
   const reseal = involved.map(c => ({ otherId: (c.a === id) ? spaceOnOtherSide(c) : c.a, otherSide: (c.a === id) ? OPP[c.side] : c.side, lo: c.lo, hi: c.hi, doorMeshes: c.doorMeshes }));
   if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }));
@@ -1105,7 +1121,7 @@ const updateCount = () => {
 };
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
-const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseLabel: s.showcaseLabel, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
+const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
 
 /* ===== sample art ===== */
 function drawSample(g, w, h, k) { const pals = [['#ff9a4d', '#ffd86b'], ['#4d79ff', '#9b6bff'], ['#0f2027', '#2c5364'], ['#34d399', '#a7f3d0'], ['#f472b6', '#c084fc'], ['#0ea5e9', '#2dd4bf']][k % 6]; const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, pals[0]); grad.addColorStop(1, pals[1]); g.fillStyle = grad; g.fillRect(0, 0, w, h); g.globalAlpha = .18; for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#000000'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, 0, 7); g.fill(); } g.globalAlpha = 1; if (k === 5) { g.fillStyle = 'rgba(0,0,0,.32)'; g.fillRect(w * .12, h * .34, w * .76, h * .32); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 60px Georgia, serif'; g.fillText('Your Museum', w / 2, h * .47); g.font = '400 26px system-ui'; g.fillText('face a wall & click to build', w / 2, h * .57); } else { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 8; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, Math.random() * h); g.bezierCurveTo(w * .3, Math.random() * h, w * .6, Math.random() * h, w, Math.random() * h); g.stroke(); } }
@@ -1267,7 +1283,7 @@ function setWallHeading(lw, text) { const s = spaces.get(lw.id); if (!s) return;
   s.sectionTitles[side] = next; if (next && !showSectionTitles) { showSectionTitles = true; const cb = document.getElementById('sectionTitlesOn'); if (cb) cb.checked = true; spaces.forEach(updateSectionTitles); } else updateSectionTitles(s); saveConfig();
   pushUndo('wall heading', () => { const sp = spaces.get(lw.id); if (!sp) return; sp.sectionTitles = sp.sectionTitles || { N: '', S: '', E: '', W: '' }; sp.sectionTitles[side] = prev; updateSectionTitles(sp); saveConfig(); }); }
 function titleWall(lw = lookingWall) { if (!lw || !spaces.get(lw.id)) return; if (document.pointerLockElement === canvas) document.exitPointerLock(); setTimeout(() => { const t = prompt('Heading for this wall (leave blank to remove):', wallHeadingText(lw)); if (t !== null) setWallHeading(lw, t); if (!isTouch && started) canvas.requestPointerLock?.(); }, 60); }
-function titleShowcase(s = mainWing()) { if (!s) return; if (document.pointerLockElement === canvas) document.exitPointerLock(); setTimeout(() => { const t = prompt('Wall header above the showcase frames (leave blank to remove):', s.showcaseLabel ?? 'Showcase'); if (t !== null) { s.showcaseLabel = t.trim(); updateShowcaseHeading(s); saveConfig(); } if (!isTouch && started) canvas.requestPointerLock?.(); }, 60); }
+function titleShowcase(side, s = mainWing()) { if (!s || !side) return; if (document.pointerLockElement === canvas) document.exitPointerLock(); setTimeout(() => { const t = prompt('Wall header for the ' + SIDE_NAME[side] + ' showcase wall (leave blank to remove):', showcaseHeadingText(s, side)); if (t !== null) { s.showcaseHeadings = s.showcaseHeadings || { N: 'Showcase', S: 'Showcase', E: 'Showcase', W: 'Showcase' }; s.showcaseHeadings[side] = t.trim(); updateShowcaseHeading(s); saveConfig(); } if (!isTouch && started) canvas.requestPointerLock?.(); }, 60); }
 
 /* ===== context menu — options for the wall / floor you're looking at (opened with USE) ===== */
 let ctxOpen = false, ctxTarget = null;
@@ -1302,7 +1318,7 @@ function openCtxMenu(kind, target) {
     ctxTarget = { kind: 'showcase', id: s.id, side };
     const optsEl = document.getElementById('ctxopts'); optsEl.innerHTML = '';
     document.getElementById('ctxtitle').textContent = 'Showcase' + (side ? ' · ' + SIDE_NAME[side] + ' wall' : '');
-    ctxAddBtn(optsEl, '✎ Edit wall header', '', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleShowcase(s); });
+    if (side) ctxAddBtn(optsEl, '✎ Edit wall header', '', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleShowcase(side, s); });
     // Default to whichever mode already matches this wall's current state, so opening the menu never
     // silently changes anything until a pick is actually made.
     let applyMode = (side && s.showcaseWallScopes[side]) ? 'wall' : 'all';
@@ -1408,7 +1424,7 @@ document.getElementById('importFile').addEventListener('change', async (e) => {
   location.hash = ''; setTimeout(() => location.reload(), 400);
 });
 async function saveGallery() { for (const f of frames) if (f.filled) { const rec = await DB.get(f.id); if (rec) { rec.title = f.title; await DB.put(rec); } } await saveConfig(); toast('Saved to this browser'); }
-function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint, s.showcaseScope, s.showcaseLabel, s.showcaseWallColor, s.showcaseWallPattern, s.showcaseWallScopes]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
+function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint, s.showcaseScope, s.showcaseHeadings, s.showcaseWallColor, s.showcaseWallPattern, s.showcaseWallScopes]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
 function readShare() { const m = location.hash.match(/m=([^&]+)/); if (!m) return null; try { return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); } catch { return null; } }
 
 /* ===== music ===== */
@@ -1633,6 +1649,9 @@ function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.g
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer?.setSize(innerWidth, innerHeight); });
 let toastTimer; function toast(msg) { const el = document.getElementById('toast'); el.textContent = msg; el.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 2300); }
 
+// Older saves/share-links carry one showcaseLabel string shared by all four walls — spread it onto
+// each side so a room saved before per-wall headers existed keeps showing what it used to.
+function migrateShowcaseHeadings(o) { if (o.showcaseHeadings) return o.showcaseHeadings; if (o.showcaseLabel != null) return { N: o.showcaseLabel, S: o.showcaseLabel, E: o.showcaseLabel, W: o.showcaseLabel }; return undefined; }
 /* ===== boot ===== */
 function buildFromConfig(cfg) {
   if (cfg.showSectionTitles != null) showSectionTitles = !!cfg.showSectionTitles;
@@ -1641,11 +1660,11 @@ function buildFromConfig(cfg) {
     let s;
     if (o.floorType) {
       // New format: independent floor/wall
-      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
+      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseHeadings: migrateShowcaseHeadings(o), showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
     } else {
       // Old format: styleId only — convert to new format
       const preset = presetById(o.styleId);
-      s = { id: o.id, type: o.type, name: o.name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseLabel: o.showcaseLabel, showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
+      s = { id: o.id, type: o.type, name: o.name, floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseHeadings: migrateShowcaseHeadings(o), showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
     }
     spaces.set(s.id, s);
   });
@@ -1667,7 +1686,7 @@ async function boot() {
       return { id: a[0], type: a[1], name: a[2], floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: a[4], x1: a[5], z0: a[6], z1: a[7], sectionTitles: a[8] || { N: '', S: '', E: '', W: '' } };
     } else {
       // New format: [id, type, name, floorType, wallColor, wallRoughness, wallMetalness, lightColor, lightIntensity, accent, x0, x1, z0, z1, sectionTitles]
-      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' }, wallPattern: a[15], floorTint: a[16], showcaseScope: a[17] || 'all', showcaseLabel: a[18], showcaseWallColor: a[19], showcaseWallPattern: a[20], showcaseWallScopes: a[21] };
+      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' }, wallPattern: a[15], floorTint: a[16], showcaseScope: a[17] || 'all', showcaseHeadings: (a[18] && typeof a[18] === 'object') ? a[18] : (a[18] != null ? { N: a[18], S: a[18], E: a[18], W: a[18] } : undefined), showcaseWallColor: a[19], showcaseWallPattern: a[20], showcaseWallScopes: a[21] };
     }
   }), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
   else {
