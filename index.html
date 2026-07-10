@@ -131,6 +131,7 @@
     <div class="grp">
       <div class="lbl">Add media</div>
       <button class="item accent" data-act="add">＋ Add photos, videos &amp; GIFs</button>
+      <button class="item" data-act="addurl">🔗 Add from a URL</button>
       <div class="lbl" style="margin-top:6px">Place them in</div>
       <div class="seg" id="scopeSeg"><button data-scope="room">This room</button><button data-scope="all" class="on">Whole museum</button></div>
       <div id="count">0 / 0 filled</div>
@@ -1070,6 +1071,33 @@ async function assignFile(f, file, record = true) {
   try { await DB.put({ frame: f.id, type, blob: file, title: f.title }); } catch { toast('Storage full — shown this session only'); }
   if (record) pushUndo('add media', () => restoreFrame(f, prev.rec, prev.title));
 }
+// Guess a mime type from a URL's extension when the server doesn't send a usable Content-Type
+// (some CDNs reply with "application/octet-stream" or nothing at all).
+const URL_EXT_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', avi: 'video/x-msvideo', m4v: 'video/mp4' };
+function guessTypeFromUrl(u) { const ext = (u.pathname.split('.').pop() || '').toLowerCase(); return URL_EXT_MIME[ext] || ''; }
+// Fetches a directly-linked image/video URL and hangs it like any other file. Only works for hosts
+// that (a) serve the raw media file at that URL and (b) send CORS headers permitting cross-origin
+// reads — most photo/video-sharing apps (Google Photos, Facebook, Apple Photos share pages) don't
+// expose links like that, since they serve an HTML viewer page instead of the raw file.
+async function addFromUrl() {
+  const raw = prompt('Paste a direct link to an image or video file (e.g. ending in .jpg, .png, .mp4)…');
+  if (raw === null) return;
+  const trimmed = raw.trim(); if (!trimmed) return;
+  let u; try { u = new URL(trimmed); } catch { toast('That doesn\'t look like a valid URL'); return; }
+  if (!/^https?:$/.test(u.protocol)) { toast('URL must start with http:// or https://'); return; }
+  const f = addTarget || nextEmpty(addScope); addTarget = null;
+  if (!f) { toast(addScope === 'room' ? 'This room is full — build more or switch scope' : 'All frames full — build a hall or wing'); return; }
+  toast('Fetching…');
+  let blob;
+  try { const res = await fetch(u.href, { mode: 'cors' }); if (!res.ok) throw new Error('http ' + res.status); blob = await res.blob(); }
+  catch { toast('Could not load that link — the site may not allow direct embedding (common with Google Photos, Facebook & Apple Photos share links)'); return; }
+  const type = (blob.type && blob.type !== 'application/octet-stream') ? blob.type : guessTypeFromUrl(u);
+  if (!/^image\//.test(type) && !/^video\//.test(type)) { toast('That link isn\'t a supported image or video file'); return; }
+  const name = u.pathname.split('/').pop() || 'media';
+  const file = new File([blob], name, { type });
+  await assignFile(f, file);
+  toast('Added from URL');
+}
 async function restoreFrame(f, rec, title) {
   stopGif(f); if (f.video) { f.video.pause(); f.video = null; } if (audibleVideo === f) audibleVideo = null;
   if (rec && rec.blob) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); try { await DB.put(rec); } catch {} drawPlate(f); }
@@ -1453,7 +1481,7 @@ document.getElementById('startAdd').onclick = () => { addTarget = null; fileInpu
 document.querySelectorAll('#scopeSeg button').forEach(b => b.onclick = () => { addScope = b.dataset.scope; document.querySelectorAll('#scopeSeg button').forEach(x => x.classList.toggle('on', x === b)); updateCount(); });
 let musicScope = 'global';
 menu.querySelectorAll('button[data-act]').forEach(b => b.onclick = () => { const a = b.dataset.act;
-  if (a === 'add') { addTarget = null; fileInput.click(); } else if (a === 'save') saveGallery(); else if (a === 'share') shareLink(); else if (a === 'export') exportGallery(); else if (a === 'import') document.getElementById('importFile').click();
+  if (a === 'add') { addTarget = null; fileInput.click(); } else if (a === 'addurl') { addTarget = null; addFromUrl(); } else if (a === 'save') saveGallery(); else if (a === 'share') shareLink(); else if (a === 'export') exportGallery(); else if (a === 'import') document.getElementById('importFile').click();
   else if (a === 'undo') doUndo();
   else if (a === 'overview') openOverview();
   else if (a === 'loadmusic') { musicScope = 'global'; document.getElementById('musicFile').click(); }
