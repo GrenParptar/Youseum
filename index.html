@@ -132,6 +132,8 @@
       <div class="lbl">Add media</div>
       <button class="item accent" data-act="add">＋ Add photos, videos &amp; GIFs</button>
       <button class="item" data-act="addurl">🔗 Add from a URL</button>
+      <button class="item" data-act="pasteclip">📋 Paste from clipboard</button>
+      <div class="lbl" style="margin-top:2px;color:#6a6a76">Or just press <b style="color:#9a9aa6">Ctrl/⌘+V</b> anywhere — pastes a copied photo (or a copied link) into the frame you're looking at, or the lightbox if one's open.</div>
       <div class="lbl" style="margin-top:6px">Place them in</div>
       <div class="seg" id="scopeSeg"><button data-scope="room">This room</button><button data-scope="all" class="on">Whole museum</button></div>
       <div id="count">0 / 0 filled</div>
@@ -181,6 +183,7 @@
         <div class="row"><kbd>Shift</kbd> Run</div><div class="row"><kbd>L-Click</kbd> Fill / build hall</div>
         <div class="row"><kbd>R-Click</kbd> Build a wing</div><div class="row"><kbd>E</kbd> Play · <kbd>M</kbd> Mute</div>
         <div class="row"><kbd>T</kbd> Title · <kbd>⌫</kbd> Clear</div><div class="row"><kbd>Esc</kbd> Pause &amp; free cursor</div>
+        <div class="row"><kbd>Ctrl/⌘+V</kbd> Paste a photo</div>
       </div>
       <div class="controls touchonly" style="grid-template-columns:1fr">
         <div class="row">🕹️ Left thumb to move · drag right side to look</div>
@@ -201,6 +204,7 @@
       <div id="lbMeta"></div>
       <div id="lbActions">
         <button id="lbTitleBtn">✎ Title</button>
+        <button id="lbPaste">📋 Paste to replace</button>
         <button id="lbRemove">🗑 Remove media</button>
         <button id="lbHall">＋ Hall in its place</button>
         <button id="lbWing">＋ Wing in its place</button>
@@ -1075,10 +1079,22 @@ async function assignFile(f, file, record = true) {
 // (some CDNs reply with "application/octet-stream" or nothing at all).
 const URL_EXT_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', avi: 'video/x-msvideo', m4v: 'video/mp4' };
 function guessTypeFromUrl(u) { const ext = (u.pathname.split('.').pop() || '').toLowerCase(); return URL_EXT_MIME[ext] || ''; }
-// Fetches a directly-linked image/video URL and hangs it like any other file. Only works for hosts
-// that (a) serve the raw media file at that URL and (b) send CORS headers permitting cross-origin
-// reads — most photo/video-sharing apps (Google Photos, Facebook, Apple Photos share pages) don't
-// expose links like that, since they serve an HTML viewer page instead of the raw file.
+// Fetches a directly-linked image/video URL and hangs it in frame f, like any other file. Only
+// works for hosts that (a) serve the raw media file at that URL and (b) send CORS headers
+// permitting cross-origin reads — most photo/video-sharing apps (Google Photos, Facebook, Apple
+// Photos share pages) don't expose links like that, since they serve an HTML viewer page instead
+// of the raw file. Returns true on success so callers can pick their own success toast.
+async function assignFromUrl(f, u) {
+  toast('Fetching…');
+  let blob;
+  try { const res = await fetch(u.href, { mode: 'cors' }); if (!res.ok) throw new Error('http ' + res.status); blob = await res.blob(); }
+  catch { toast('Could not load that link — the site may not allow direct embedding (common with Google Photos, Facebook & Apple Photos share links)'); return false; }
+  const type = (blob.type && blob.type !== 'application/octet-stream') ? blob.type : guessTypeFromUrl(u);
+  if (!/^image\//.test(type) && !/^video\//.test(type)) { toast('That link isn\'t a supported image or video file'); return false; }
+  const name = u.pathname.split('/').pop() || 'media';
+  await assignFile(f, new File([blob], name, { type }));
+  return true;
+}
 async function addFromUrl() {
   const raw = prompt('Paste a direct link to an image or video file (e.g. ending in .jpg, .png, .mp4)…');
   if (raw === null) return;
@@ -1087,16 +1103,51 @@ async function addFromUrl() {
   if (!/^https?:$/.test(u.protocol)) { toast('URL must start with http:// or https://'); return; }
   const f = addTarget || nextEmpty(addScope); addTarget = null;
   if (!f) { toast(addScope === 'room' ? 'This room is full — build more or switch scope' : 'All frames full — build a hall or wing'); return; }
-  toast('Fetching…');
-  let blob;
-  try { const res = await fetch(u.href, { mode: 'cors' }); if (!res.ok) throw new Error('http ' + res.status); blob = await res.blob(); }
-  catch { toast('Could not load that link — the site may not allow direct embedding (common with Google Photos, Facebook & Apple Photos share links)'); return; }
-  const type = (blob.type && blob.type !== 'application/octet-stream') ? blob.type : guessTypeFromUrl(u);
-  if (!/^image\//.test(type) && !/^video\//.test(type)) { toast('That link isn\'t a supported image or video file'); return; }
-  const name = u.pathname.split('/').pop() || 'media';
-  const file = new File([blob], name, { type });
+  if (await assignFromUrl(f, u)) toast('Added from URL');
+}
+// Picks which frame a clipboard paste should land in: the frame currently open in the lightbox
+// (replacing its media) takes priority, then whatever frame you're looking at in the tour, then
+// falls back to the same "next empty frame" behavior as the Add button.
+function pasteTargetFrame() { if (lightboxOpen && lbFrame) return lbFrame; if (inTour && lookingAt) return lookingAt; return addTarget || nextEmpty(addScope); }
+async function pasteMediaFile(file) {
+  const f = pasteTargetFrame();
+  if (!f) { toast(addScope === 'room' ? 'This room is full — build more or switch scope' : 'All frames full — build a hall or wing'); return; }
+  if (lightboxOpen && lbFrame === f) closeLightbox();
   await assignFile(f, file);
-  toast('Added from URL');
+  toast('Pasted into frame');
+}
+async function pasteMediaUrl(text) {
+  let u; try { u = new URL(text.trim()); } catch { return; }
+  if (!/^https?:$/.test(u.protocol)) return;
+  const f = pasteTargetFrame();
+  if (!f) { toast(addScope === 'room' ? 'This room is full — build more or switch scope' : 'All frames full — build a hall or wing'); return; }
+  if (lightboxOpen && lbFrame === f) closeLightbox();
+  if (await assignFromUrl(f, u)) toast('Pasted into frame');
+}
+// Ctrl/Cmd+V paste, anywhere except into a real text field (so pasting into room-name/hex inputs
+// still works normally). Handles an actual image/video clipboard item (e.g. a copied screenshot or
+// "Copy Image" from a browser) first, falling back to a plain pasted URL.
+addEventListener('paste', (e) => {
+  const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  const items = [...(e.clipboardData?.items || [])];
+  const fileItem = items.find(it => it.kind === 'file' && /^(image|video)\//.test(it.type));
+  if (fileItem) { e.preventDefault(); const file = fileItem.getAsFile(); if (file) pasteMediaFile(file); return; }
+  const text = e.clipboardData?.getData('text/plain');
+  if (text && /^https?:\/\//i.test(text.trim())) { e.preventDefault(); pasteMediaUrl(text); }
+});
+// Explicit "Paste from clipboard" action for touch users (no Ctrl/Cmd+V) or when the paste event
+// doesn't fire for some reason. Uses the async Clipboard API, which needs a secure context and isn't
+// supported everywhere — falls back to pointing desktop users at the keyboard shortcut.
+async function pasteFromClipboardBtn() {
+  if (!navigator.clipboard?.read) { toast(isTouch ? 'Your browser doesn\'t support pasting this way' : 'Not supported here — try Ctrl/⌘+V instead'); return; }
+  let items;
+  try { items = await navigator.clipboard.read(); }
+  catch { toast('Clipboard access was blocked'); return; }
+  for (const item of items) {
+    const type = item.types.find(t => /^(image|video)\//.test(t));
+    if (type) { const blob = await item.getType(type); await pasteMediaFile(new File([blob], 'clipboard', { type })); return; }
+  }
+  toast('No photo or video found on your clipboard');
 }
 async function restoreFrame(f, rec, title) {
   stopGif(f); if (f.video) { f.video.pause(); f.video = null; } if (audibleVideo === f) audibleVideo = null;
@@ -1299,6 +1350,7 @@ function closeLightbox() { const st = document.getElementById('lbStage'); st.que
 document.getElementById('lbClose').onclick = closeLightbox;
 document.getElementById('lightbox').addEventListener('mousedown', (e) => { if (e.target.id === 'lightbox') closeLightbox(); });
 document.getElementById('lbTitleBtn').onclick = () => { const f = lbFrame; if (!f) return; const t = prompt('Title for this piece:', f.title || ''); if (t !== null) { f.title = t.trim(); drawPlate(f); DB.get(f.id).then(rec => { if (rec) { rec.title = f.title; DB.put(rec); } }); document.getElementById('lbTitle').textContent = f.title || 'Untitled'; } };
+document.getElementById('lbPaste').onclick = () => pasteFromClipboardBtn();
 document.getElementById('lbRemove').onclick = () => { const f = lbFrame; closeLightbox(); if (f) { clearFrameUndoable(f); toast('Removed media'); } };
 document.getElementById('lbHall').onclick = () => { const f = lbFrame; closeLightbox(); if (f) buildAtFrame('hall', f); };
 document.getElementById('lbWing').onclick = () => { const f = lbFrame; closeLightbox(); if (f) buildAtFrame('wing', f); };
@@ -1481,7 +1533,7 @@ document.getElementById('startAdd').onclick = () => { addTarget = null; fileInpu
 document.querySelectorAll('#scopeSeg button').forEach(b => b.onclick = () => { addScope = b.dataset.scope; document.querySelectorAll('#scopeSeg button').forEach(x => x.classList.toggle('on', x === b)); updateCount(); });
 let musicScope = 'global';
 menu.querySelectorAll('button[data-act]').forEach(b => b.onclick = () => { const a = b.dataset.act;
-  if (a === 'add') { addTarget = null; fileInput.click(); } else if (a === 'addurl') { addTarget = null; addFromUrl(); } else if (a === 'save') saveGallery(); else if (a === 'share') shareLink(); else if (a === 'export') exportGallery(); else if (a === 'import') document.getElementById('importFile').click();
+  if (a === 'add') { addTarget = null; fileInput.click(); } else if (a === 'addurl') { addTarget = null; addFromUrl(); } else if (a === 'pasteclip') { addTarget = null; pasteFromClipboardBtn(); } else if (a === 'save') saveGallery(); else if (a === 'share') shareLink(); else if (a === 'export') exportGallery(); else if (a === 'import') document.getElementById('importFile').click();
   else if (a === 'undo') doUndo();
   else if (a === 'overview') openOverview();
   else if (a === 'loadmusic') { musicScope = 'global'; document.getElementById('musicFile').click(); }
