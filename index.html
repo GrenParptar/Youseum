@@ -121,8 +121,8 @@
   #pcOverlay.open { display: flex; }
   #pcCard { width: min(340px, 92vw); background: rgba(18,18,24,.97); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 20px; box-shadow: 0 24px 70px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 12px; text-align: center; }
   #pcCard .pcmsg { font-size: 14px; color: #d6d6df; line-height: 1.5; } #pcCard .pcmsg b { color: #ffd27a; }
-  #pcInput { width: 100%; background: rgba(0,0,0,.3); border: 2px dashed rgba(255,210,122,.5); color: #fff; border-radius: 10px; padding: 16px; font: 600 14px inherit; text-align: center; }
-  #pcInput::placeholder { color: #8a8a97; }
+  #pcInput { width: 100%; min-height: 52px; background: rgba(0,0,0,.3); border: 2px dashed rgba(255,210,122,.5); color: #fff; border-radius: 10px; padding: 16px; font: 600 14px inherit; text-align: center; outline: none; overflow-wrap: anywhere; }
+  #pcInput:empty::before { content: attr(data-placeholder); color: #8a8a97; }
   #pcCancel { cursor: pointer; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #cfcfd8; font: 600 14px inherit; padding: 11px; border-radius: 10px; } #pcCancel:hover { background: rgba(255,255,255,.12); }
 </style>
 <script type="importmap">
@@ -232,7 +232,7 @@
   <div id="pcOverlay">
     <div id="pcCard">
       <div class="pcmsg">Tap the box below, then choose <b>Paste</b> from the menu that pops up.</div>
-      <input id="pcInput" type="text" placeholder="Tap here…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      <div id="pcInput" contenteditable="true" data-placeholder="Tap here…" autocorrect="off" autocapitalize="off" spellcheck="false"></div>
       <button id="pcCancel">Cancel</button>
     </div>
   </div>
@@ -1175,8 +1175,8 @@ async function pasteFromClipboardBtn() {
   openPasteCatcher();
 }
 const pcOverlay = document.getElementById('pcOverlay'), pcInput = document.getElementById('pcInput');
-function openPasteCatcher() { pcOverlay.classList.add('open'); pcInput.value = ''; setTimeout(() => pcInput.focus(), 60); }
-function closePasteCatcher() { pcOverlay.classList.remove('open'); pcInput.blur(); }
+function openPasteCatcher() { pcOverlay.classList.add('open'); pcInput.textContent = ''; setTimeout(() => pcInput.focus(), 60); }
+function closePasteCatcher() { pcOverlay.classList.remove('open'); pcInput.blur(); pcInput.textContent = ''; }
 document.getElementById('pcCancel').onclick = closePasteCatcher;
 pcOverlay.addEventListener('mousedown', (e) => { if (e.target === pcOverlay) closePasteCatcher(); });
 pcInput.addEventListener('paste', (e) => {
