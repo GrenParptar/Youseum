@@ -1250,14 +1250,6 @@ function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
 const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
 
-/* ===== sample art ===== */
-function drawSample(g, w, h, k) { const pals = [['#ff9a4d', '#ffd86b'], ['#4d79ff', '#9b6bff'], ['#0f2027', '#2c5364'], ['#34d399', '#a7f3d0'], ['#f472b6', '#c084fc'], ['#0ea5e9', '#2dd4bf']][k % 6]; const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, pals[0]); grad.addColorStop(1, pals[1]); g.fillStyle = grad; g.fillRect(0, 0, w, h); g.globalAlpha = .18; for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#000000'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, 0, 7); g.fill(); } g.globalAlpha = 1; if (k === 5) { g.fillStyle = 'rgba(0,0,0,.32)'; g.fillRect(w * .12, h * .34, w * .76, h * .32); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 60px Georgia, serif'; g.fillText('Your Museum', w / 2, h * .47); g.font = '400 26px system-ui'; g.fillText('face a wall & click to build', w / 2, h * .57); } else { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 8; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, Math.random() * h); g.bezierCurveTo(w * .3, Math.random() * h, w * .6, Math.random() * h, w, Math.random() * h); g.stroke(); } }
-  // Stamped onto the pixels themselves (not just the caption below the frame) so it survives export/
-  // sharing and a new user can never mistake these starter pieces for their own photos.
-  g.fillStyle = 'rgba(0,0,0,.4)'; g.fillRect(0, h - 44, w, 44); g.fillStyle = 'rgba(255,255,255,.92)'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '700 22px system-ui'; g.fillText('SAMPLE IMAGE', w / 2, h - 22); }
-function makeSampleBlob(k) { return new Promise((res) => { const c = document.createElement('canvas'); c.width = 900; c.height = 620; drawSample(c.getContext('2d'), 900, 620, k); c.toBlob(b => res(b), 'image/jpeg', 0.9); }); }
-async function addSamples() { const s = spaces.values().next().value; const fl = spaceFramesList(s).slice(0, 6); const titles = ['Sunrise', 'Aurora', 'Deep Sea', 'Meadow', 'Bloom', 'Your Museum']; for (let k = 0; k < fl.length; k++) { const blob = await makeSampleBlob(k); fl[k].title = titles[k]; await assignFile(fl[k], new File([blob], 'sample' + k + '.jpg', { type: 'image/jpeg' }), false); drawPlate(fl[k]); } }
-
 /* ===== showcase (main wing's centre display) ===== */
 function mainWing() { for (const s of spaces.values()) if (s.type === 'room') return s; return null; }
 // Every currently-filled frame in scope ('all', or a specific space id) — the showcase draws from
@@ -1815,8 +1807,8 @@ function buildFromConfig(cfg) {
   spaces.forEach(s => applyTheme(s, false));
 }
 async function boot() {
-  const share = readShare(); const recs = share ? [] : await DB.all(); let config = null; const mediaRecs = []; let hadMedia = false;
-  for (const r of recs) { if (r.frame === 'config') config = r.config; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) { mediaRecs.push(r); hadMedia = true; } }
+  const share = readShare(); const recs = share ? [] : await DB.all(); let config = null; const mediaRecs = [];
+  for (const r of recs) { if (r.frame === 'config') config = r.config; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) mediaRecs.push(r); }
   if (share) { const cfg = { spaces: share.s.map(a => {
     // Handle both old format (styleId) and new format (independent floor/wall)
     if (a.length === 9) {
@@ -1838,7 +1830,6 @@ async function boot() {
   // lands you at via spawnPoint, so first load and teleporting back both feel the same).
   const mw = mainWing(); if (mw) { const p = spawnPoint(mw); camera.position.set(p.x, 1.7, p.z); }
   applyFrameClamps(); buildWingEditor(); updateCount(); updateUndoBtn();
-  if (!share && !config && !hadMedia) await addSamples();
   startShowcase();
   document.getElementById('loading').classList.add('hidden');
 }
