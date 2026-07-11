@@ -113,6 +113,17 @@
   .ctxcolor::-webkit-color-swatch-wrapper { padding: 2px; } .ctxcolor::-webkit-color-swatch { border: none; border-radius: 6px; } .ctxcolor::-moz-color-swatch { border: none; border-radius: 6px; }
   .ctxcode { flex: 1; min-width: 100px; background: rgba(0,0,0,.3); border: 2px solid rgba(255,255,255,.16); border-radius: 9px; color: #ececf2; font: 600 13px ui-monospace, Menlo, Consolas, monospace; padding: 0 10px; text-transform: lowercase; }
   #ctxcancel { cursor: pointer; margin-top: 6px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #cfcfd8; font: 600 14px inherit; padding: 11px; border-radius: 10px; } #ctxcancel:hover { background: rgba(255,255,255,.12); }
+  /* Manual paste-catcher — shown when the async Clipboard API can't read the clipboard directly
+     (notably iOS Safari, which blocks JS from pulling images copied from native apps like Photos).
+     Focusing a real text field and letting the user trigger the OS's own "Paste" bubble is the one
+     paste path that reliably works everywhere. */
+  #pcOverlay { position: fixed; inset: 0; z-index: 36; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); backdrop-filter: blur(2px); padding: 4vh 4vw; }
+  #pcOverlay.open { display: flex; }
+  #pcCard { width: min(340px, 92vw); background: rgba(18,18,24,.97); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 20px; box-shadow: 0 24px 70px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 12px; text-align: center; }
+  #pcCard .pcmsg { font-size: 14px; color: #d6d6df; line-height: 1.5; } #pcCard .pcmsg b { color: #ffd27a; }
+  #pcInput { width: 100%; background: rgba(0,0,0,.3); border: 2px dashed rgba(255,210,122,.5); color: #fff; border-radius: 10px; padding: 16px; font: 600 14px inherit; text-align: center; }
+  #pcInput::placeholder { color: #8a8a97; }
+  #pcCancel { cursor: pointer; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #cfcfd8; font: 600 14px inherit; padding: 11px; border-radius: 10px; } #pcCancel:hover { background: rgba(255,255,255,.12); }
 </style>
 <script type="importmap">
 { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
@@ -216,6 +227,13 @@
       <div id="ctxtitle">Options</div>
       <div id="ctxopts"></div>
       <button id="ctxcancel">Cancel</button>
+    </div>
+  </div>
+  <div id="pcOverlay">
+    <div id="pcCard">
+      <div class="pcmsg">Tap the box below, then choose <b>Paste</b> from the menu that pops up.</div>
+      <input id="pcInput" type="text" placeholder="Tap here…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      <button id="pcCancel">Cancel</button>
     </div>
   </div>
   <div id="toast"></div>
@@ -1135,20 +1153,40 @@ addEventListener('paste', (e) => {
   const text = e.clipboardData?.getData('text/plain');
   if (text && /^https?:\/\//i.test(text.trim())) { e.preventDefault(); pasteMediaUrl(text); }
 });
-// Explicit "Paste from clipboard" action for touch users (no Ctrl/Cmd+V) or when the paste event
-// doesn't fire for some reason. Uses the async Clipboard API, which needs a secure context and isn't
-// supported everywhere — falls back to pointing desktop users at the keyboard shortcut.
+// Explicit "Paste from clipboard" action, for touch users (no Ctrl/Cmd+V) or when the paste event
+// doesn't fire for some reason. Tries the async Clipboard API first (works on desktop Chrome/Edge
+// and most of Android); if that's unsupported, blocked, or comes back empty — as it reliably does on
+// iOS Safari, which won't let JS pull an image copied from a native app like Photos — falls back to
+// the manual paste-catcher overlay below, which works everywhere because it lets the OS's own Paste
+// UI hand the data to a real focused text field instead.
 async function pasteFromClipboardBtn() {
-  if (!navigator.clipboard?.read) { toast(isTouch ? 'Your browser doesn\'t support pasting this way' : 'Not supported here — try Ctrl/⌘+V instead'); return; }
-  let items;
-  try { items = await navigator.clipboard.read(); }
-  catch { toast('Clipboard access was blocked'); return; }
-  for (const item of items) {
-    const type = item.types.find(t => /^(image|video)\//.test(t));
-    if (type) { const blob = await item.getType(type); await pasteMediaFile(new File([blob], 'clipboard', { type })); return; }
+  if (navigator.clipboard?.read) {
+    try {
+      // navigator.clipboard.read() can hang indefinitely rather than reject — e.g. waiting on a
+      // permission prompt the browser never actually shows — so race it against a timeout instead
+      // of awaiting it directly, or a stuck read would make this button look like it does nothing.
+      const items = await Promise.race([navigator.clipboard.read(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 1200))]);
+      for (const item of items) {
+        const type = item.types.find(t => /^(image|video)\//.test(t));
+        if (type) { const blob = await item.getType(type); await pasteMediaFile(new File([blob], 'clipboard', { type })); return; }
+      }
+    } catch { /* fall through to the manual paste-catcher */ }
   }
-  toast('No photo or video found on your clipboard');
+  openPasteCatcher();
 }
+const pcOverlay = document.getElementById('pcOverlay'), pcInput = document.getElementById('pcInput');
+function openPasteCatcher() { pcOverlay.classList.add('open'); pcInput.value = ''; setTimeout(() => pcInput.focus(), 60); }
+function closePasteCatcher() { pcOverlay.classList.remove('open'); pcInput.blur(); }
+document.getElementById('pcCancel').onclick = closePasteCatcher;
+pcOverlay.addEventListener('mousedown', (e) => { if (e.target === pcOverlay) closePasteCatcher(); });
+pcInput.addEventListener('paste', (e) => {
+  const items = [...(e.clipboardData?.items || [])];
+  const fileItem = items.find(it => it.kind === 'file' && /^(image|video)\//.test(it.type));
+  if (fileItem) { e.preventDefault(); const file = fileItem.getAsFile(); closePasteCatcher(); if (file) pasteMediaFile(file); return; }
+  const text = e.clipboardData?.getData('text/plain');
+  if (text && /^https?:\/\//i.test(text.trim())) { e.preventDefault(); closePasteCatcher(); pasteMediaUrl(text); return; }
+  setTimeout(() => { closePasteCatcher(); toast('No photo, video or link found in that paste'); }, 60);
+});
 async function restoreFrame(f, rec, title) {
   stopGif(f); if (f.video) { f.video.pause(); f.video = null; } if (audibleVideo === f) audibleVideo = null;
   if (rec && rec.blob) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); try { await DB.put(rec); } catch {} drawPlate(f); }
