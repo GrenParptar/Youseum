@@ -514,7 +514,11 @@ function updateShowcaseTheme(s) {
 function showcaseHeadingText(s, sd) { return (s.showcaseHeadings?.[sd] ?? 'Showcase').trim(); }
 function updateShowcaseHeading(s) {
   if (!s.showcaseHeadingMeshes) return;
-  for (const sd of SIDES) { const txt = showcaseHeadingText(s, sd); const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, s.accent); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+  // Respect showcaseEnabled too, not just showSectionTitles — otherwise any theme change (wall
+  // color, floor, preset) routed through applyTheme() re-shows the showcase's wall headers even
+  // while the showcase itself is toggled off.
+  const on = s.showcaseEnabled !== false;
+  for (const sd of SIDES) { const txt = showcaseHeadingText(s, sd); const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, s.accent); m.material.needsUpdate = true; m.visible = on && showSectionTitles && !!txt; }
 }
 function positionShowcaseHeading(s, side, m) {
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2, x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
