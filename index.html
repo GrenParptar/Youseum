@@ -164,6 +164,11 @@
       <button class="item" data-act="tour">🎬 Start guided tour</button>
     </div>
     <div class="grp">
+      <div class="lbl">Showcase</div>
+      <div class="musicrow"><label class="switch"><input type="checkbox" id="showcaseOn"><span></span></label><span>Show the centre display case</span></div>
+      <div class="lbl" style="margin-top:2px;color:#6a6a76">A small case in the main room that automatically cycles through your photos. Turn it on to configure what it shows, in the main room's card below.</div>
+    </div>
+    <div class="grp">
       <div class="lbl">Rooms &amp; halls — name, theme &amp; music</div>
       <div class="musicrow" style="margin-bottom:2px"><label class="switch"><input type="checkbox" id="sectionTitlesOn" checked><span></span></label><span>Show wall headings (large titles)</span></div>
       <div id="wings"></div>
@@ -366,6 +371,10 @@ const SIDES = ['N', 'S', 'E', 'W'], OPP = { N: 'S', S: 'N', E: 'W', W: 'E' };
 const SIDE_NAME = { N: 'North', S: 'South', E: 'East', W: 'West' };
 const spaces = new Map(); const connections = []; let nextId = 0;
 let showSectionTitles = true;
+// Whether the one-time "here's what the showcase is" prompt has already fired (or never needed to —
+// see boot()). Defaults true so it can never accidentally show before boot() has had a chance to set
+// it from saved state.
+let showcaseIntroSeen = true;
 const YAWFOR = { N: 0, S: Math.PI, E: -Math.PI / 2, W: Math.PI / 2 };
 
 /* ===== collider-aware box ===== */
@@ -1245,7 +1254,24 @@ async function rebuildSpace(snap) {
 const updateCount = () => {
   const pool = addScope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames;
   document.getElementById('count').textContent = `${pool.filter(f => f.filled).length} / ${pool.length} filled`;
+  maybeShowShowcaseIntro();
 };
+// One-time onboarding nudge for a brand-new museum (see boot(), which only arms this when there's no
+// existing config/media/share to respect): once the visitor has hung their third piece, explain what
+// the showcase is and let them turn it on, since it otherwise stays invisible forever (off by default
+// for new museums — see the Main Hall's showcaseEnabled: false in boot()).
+function maybeShowShowcaseIntro() {
+  if (showcaseIntroSeen) return;
+  if (frames.filter(f => f.filled).length < 3) return;
+  showcaseIntroSeen = true; DB.put({ frame: 'showcaseIntroSeen' });
+  const mw = mainWing(); if (!mw) return;
+  if (document.pointerLockElement) document.exitPointerLock();
+  setTimeout(() => {
+    const on = confirm('Your museum has a "showcase" — a small display case in the middle of the main room that automatically cycles through your photos.\n\nWant it turned on? You can flip this anytime from the ☰ menu, just above the Rooms & halls list.');
+    setShowcaseEnabled(mw, on); saveConfig(); buildWingEditor();
+    if (!isTouch && started) try { canvas.requestPointerLock?.(); } catch (e) {}
+  }, 60);
+}
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
 const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
@@ -1593,6 +1619,7 @@ menu.querySelectorAll('button[data-act]').forEach(b => b.onclick = () => { const
   else if (a === 'tour') { closeMenu(); if (!started) enterTour(); GT.start(); }
   else if (a === 'exit') { closeMenu(); exitTour(); } });
 document.getElementById('sectionTitlesOn').addEventListener('change', (e) => { showSectionTitles = e.target.checked; spaces.forEach(updateSectionTitles); spaces.forEach(updateShowcaseHeading); saveConfig(); });
+document.getElementById('showcaseOn').addEventListener('change', (e) => { const mw = mainWing(); if (!mw) return; setShowcaseEnabled(mw, e.target.checked); saveConfig(); buildWingEditor(); });
 document.getElementById('musicOn').addEventListener('change', (e) => Music.setOn(e.target.checked));
 document.getElementById('musicVol').addEventListener('input', (e) => Music.setVol(+e.target.value));
 document.getElementById('musicFile').addEventListener('change', (e) => { if (e.target.files[0]) Music.setTrack(musicScope, e.target.files[0]); e.target.value = ''; });
@@ -1617,6 +1644,7 @@ const FLOOR_TYPES = [
   { name: 'Concrete', value: 'concrete' },
 ];
 function buildWingEditor() {
+  const mw0 = mainWing(); const showcaseOnEl = document.getElementById('showcaseOn'); if (showcaseOnEl) showcaseOnEl.checked = !!mw0 && mw0.showcaseEnabled !== false;
   const host = document.getElementById('wings'); host.innerHTML = '';
   sortedSpaces().forEach((s) => {
     const presetOpts = PRESETS.map(o => `<option value="${o.id}"${o.floor === s.floorType && o.wall === s.wallColor ? ' selected' : ''}>${o.name}</option>`).join('');
@@ -1633,16 +1661,19 @@ function buildWingEditor() {
     const showcaseWallPatternVal = s.showcaseWallPattern != null ? s.showcaseWallPattern : s.wallPattern;
     const showcaseWallOpts = WALL_COLORS.map(o => `<option value="${o.value}"${o.value === showcaseWallColorVal ? ' selected' : ''}>${o.name}</option>`).join('');
     const showcaseWallPatOpts = [['smooth', 'Smooth'], ['brick', 'Brick']].map(([v, n]) => `<option value="${v}"${showcaseWallPatternVal === v ? ' selected' : ''}>${n}</option>`).join('');
+    // Collapsed entirely (not just visually hidden) unless the showcase is turned on via the
+    // top-level menu toggle above the Rooms & halls list — nothing to configure while it's off.
     const showcaseBlock = isMainWing
-      ? `<div style="${LBL};margin-top:2px">🖼 Showcase (centre display)</div>`
-        + `<div class="musicrow" style="margin-top:0"><label class="switch"><input type="checkbox" class="wshowenabled" ${s.showcaseEnabled !== false ? 'checked' : ''}><span></span></label><span>Show the showcase display</span></div>`
-        + `<div style="${LBL};margin-top:0;color:#9a9aa6">Cycles media from</div><select class="wshowcase">${showcaseOpts}</select>`
-        + `<div class="musicrow" style="margin-top:6px"><label class="switch"><input type="checkbox" class="wshowmatch" ${showcaseWallMatched ? 'checked' : ''}><span></span></label><span>Showcase wall matches main room</span></div>`
-        + `<div class="wshowwallcustom" style="display:${showcaseWallMatched ? 'none' : 'flex'};flex-direction:column;gap:6px;margin-top:4px">`
-          + `<select class="wshowwallpat">${showcaseWallPatOpts}</select>`
-          + `<select class="wshowwall">${showcaseWallOpts}</select>`
-          + `<div class="pickrow"><input type="color" class="wshowwallpick" value="${hex(showcaseWallColorVal)}"><input class="hex wshowwallhex" value="${hex(showcaseWallColorVal)}" spellcheck="false" maxlength="7"></div>`
-        + `</div>`
+      ? (s.showcaseEnabled === false
+        ? `<div style="${LBL};margin-top:2px">🖼 Showcase (centre display)</div><div class="lbl" style="margin-top:0;color:#6a6a76">Off — turn it on above, near the top of this menu, to configure what it shows.</div>`
+        : `<div style="${LBL};margin-top:2px">🖼 Showcase (centre display)</div>`
+          + `<div style="${LBL};margin-top:0;color:#9a9aa6">Cycles media from</div><select class="wshowcase">${showcaseOpts}</select>`
+          + `<div class="musicrow" style="margin-top:6px"><label class="switch"><input type="checkbox" class="wshowmatch" ${showcaseWallMatched ? 'checked' : ''}><span></span></label><span>Showcase wall matches main room</span></div>`
+          + `<div class="wshowwallcustom" style="display:${showcaseWallMatched ? 'none' : 'flex'};flex-direction:column;gap:6px;margin-top:4px">`
+            + `<select class="wshowwallpat">${showcaseWallPatOpts}</select>`
+            + `<select class="wshowwall">${showcaseWallOpts}</select>`
+            + `<div class="pickrow"><input type="color" class="wshowwallpick" value="${hex(showcaseWallColorVal)}"><input class="hex wshowwallhex" value="${hex(showcaseWallColorVal)}" spellcheck="false" maxlength="7"></div>`
+          + `</div>`)
       : '';
     const el = document.createElement('div'); el.className = 'wing' + (s.id === currentId() ? ' current' : ''); el.dataset.id = s.id;
     el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"><span class="whereami">📍 Here</span></div>`
@@ -1657,8 +1688,7 @@ function buildWingEditor() {
         + `</div></details>`
       + `<div class="wbtns" style="margin-top:9px"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
     el.querySelector('.wname').onchange = (ev) => { s.name = ev.target.value.trim() || s.type; applyTheme(s); };
-    if (isMainWing) {
-      el.querySelector('.wshowenabled').onchange = (ev) => { setShowcaseEnabled(s, ev.target.checked); saveConfig(); };
+    if (isMainWing && s.showcaseEnabled !== false) {
       el.querySelector('.wshowcase').onchange = (ev) => { s.showcaseScope = ev.target.value; saveConfig(); cycleShowcase(); };
       el.querySelector('.wshowmatch').onchange = (ev) => {
         if (ev.target.checked) { s.showcaseWallColor = null; s.showcaseWallPattern = null; }
@@ -1807,8 +1837,13 @@ function buildFromConfig(cfg) {
   spaces.forEach(s => applyTheme(s, false));
 }
 async function boot() {
-  const share = readShare(); const recs = share ? [] : await DB.all(); let config = null; const mediaRecs = [];
-  for (const r of recs) { if (r.frame === 'config') config = r.config; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) mediaRecs.push(r); }
+  const share = readShare(); const recs = share ? [] : await DB.all(); let config = null; const mediaRecs = []; showcaseIntroSeen = false;
+  for (const r of recs) { if (r.frame === 'config') config = r.config; else if (r.frame === 'showcaseIntroSeen') showcaseIntroSeen = true; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) mediaRecs.push(r); }
+  // The showcase-explainer prompt (see maybeShowShowcaseIntro) only makes sense for a genuinely
+  // brand-new museum — anyone loading a shared layout, an existing config, or existing media already
+  // has an established showcase preference (or made one already), so it's marked "seen" for them
+  // without ever popping up.
+  if (share || config || mediaRecs.length) showcaseIntroSeen = true;
   if (share) { const cfg = { spaces: share.s.map(a => {
     // Handle both old format (styleId) and new format (independent floor/wall)
     if (a.length === 9) {
@@ -1822,7 +1857,7 @@ async function boot() {
   }), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
   else {
     if (config && config.spaces?.length) buildFromConfig(config);
-    else { const preset = PRESETS[0]; const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2 }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); saveConfig(); }
+    else { const preset = PRESETS[0]; const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2, showcaseEnabled: false }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); saveConfig(); }
     for (const r of mediaRecs) { const f = frameById.get(r.frame); if (!f) continue; if (r.title) f.title = r.title; if (r.blob) applyByType(f, r.type, URL.createObjectURL(r.blob)); else drawPlate(f); }
   }
   // Spawn pulled back from the main wing's centre so the showcase reads as a small structure inside
