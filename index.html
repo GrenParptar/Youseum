@@ -128,6 +128,13 @@
   #pcInput { width: 100%; min-height: 52px; background: rgba(0,0,0,.3); border: 2px dashed rgba(255,210,122,.5); color: #fff; border-radius: 10px; padding: 16px; font: 600 14px inherit; text-align: center; outline: none; overflow-wrap: anywhere; }
   #pcInput:empty::before { content: attr(data-placeholder); color: #8a8a97; }
   #pcCancel { cursor: pointer; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #cfcfd8; font: 600 14px inherit; padding: 11px; border-radius: 10px; } #pcCancel:hover { background: rgba(255,255,255,.12); }
+  /* One-time "here's the showcase" explainer, shown after a new museum's fifth filled frame. */
+  #scIntro { position: fixed; inset: 0; z-index: 37; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); backdrop-filter: blur(2px); padding: 4vh 4vw; }
+  #scIntro.open { display: flex; }
+  #scIntroCard { width: min(380px, 92vw); background: rgba(18,18,24,.97); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 26px; box-shadow: 0 24px 70px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 12px; text-align: center; }
+  #scIntroTitle { font: 650 19px Georgia, serif; color: #fff; }
+  #scIntroMsg { font-size: 13.5px; color: #d6d6df; line-height: 1.55; }
+  #scIntroBtns { display: flex; flex-direction: column; gap: 9px; margin-top: 6px; }
 </style>
 <script type="importmap">
 { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
@@ -245,6 +252,16 @@
       <div class="pcmsg">Tap the box below, then choose <b>Paste</b> from the menu that pops up.</div>
       <div id="pcInput" contenteditable="true" data-placeholder="Tap here…" autocorrect="off" autocapitalize="off" spellcheck="false"></div>
       <button id="pcCancel">Cancel</button>
+    </div>
+  </div>
+  <div id="scIntro">
+    <div id="scIntroCard">
+      <div id="scIntroTitle">Turn on the showcase?</div>
+      <div id="scIntroMsg">Your museum has a "showcase" — a small display case in the middle of the main room that automatically cycles through your photos. This can be toggled on or off anytime from the ☰ menu, just above the Rooms &amp; halls list.</div>
+      <div id="scIntroBtns">
+        <button id="scIntroYes" class="btn primary">Yes, please</button>
+        <button id="scIntroNo" class="btn ghost" style="margin-top:0">No, thank you</button>
+      </div>
     </div>
   </div>
   <div id="toast"></div>
@@ -536,6 +553,11 @@ function buildShowcase(s) {
   if (s.showcaseScope == null) s.showcaseScope = 'all';
   if (s.showcaseHeadings == null) s.showcaseHeadings = { N: 'Showcase', S: 'Showcase', E: 'Showcase', W: 'Showcase' };
   if (s.showcaseEnabled == null) s.showcaseEnabled = true;
+  if (!s.showcaseWallScopes) s.showcaseWallScopes = { N: null, S: null, E: null, W: null };
+  // While disabled, nothing is built at all — no meshes, no colliders, no standalone frames — so a
+  // visitor can simply walk through where the showcase would sit instead of it being invisible but
+  // still solid. Re-enabling calls this again (see setShowcaseEnabled) to build it fresh.
+  if (s.showcaseEnabled === false) return;
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2;
   const x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
   s.showcaseWallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: 0.9 });
@@ -555,25 +577,25 @@ function buildShowcase(s) {
     W: addStandaloneFrame(s.id + ':showcase:W', x0 - T / 2 - 0.04, 1.75, cz, -Math.PI / 2, maxHalf, SHOWCASE_MAXARTH),
   };
   for (const sd of SIDES) s.showcaseFrames[sd].art.userData.showcaseSide = sd;
-  if (!s.showcaseWallScopes) s.showcaseWallScopes = { N: null, S: null, E: null, W: null };
   s.showcaseHeadingMeshes = {};
   for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', s.accent), transparent: true, depthWrite: false })); positionShowcaseHeading(s, sd, m); scene.add(m); s.showcaseHeadingMeshes[sd] = m; }
   updateShowcaseHeading(s);
-  if (s.showcaseEnabled === false) setShowcaseVisible(s, false); else cycleShowcase();
+  cycleShowcase();
 }
-// Toggling the showcase off hides its walls/frames/heading AND clears whatever media those frames
-// were holding (stopping any GIF decode / video playback), so a user testing whether the showcase is
-// the source of a stutter gets a clean "it's just not there" rather than merely invisible geometry
-// still cycling and decoding in the background.
-function setShowcaseVisible(s, on) {
-  if (s.showcaseMeshes) for (const m of s.showcaseMeshes) m.visible = on;
-  if (s.showcaseHeadingMeshes) for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; if (m) m.visible = on && showSectionTitles && !!showcaseHeadingText(s, sd); }
-  if (s.showcaseFrames) for (const sd of SIDES) { const f = s.showcaseFrames[sd]; if (f) f.group.visible = on; }
+// Fully tears the showcase's meshes, colliders, standalone frames, and wall headers back out of the
+// scene (rather than just hiding them), so a disabled showcase is genuinely not there — walkable
+// through, no lingering GIF/video decode, no dead-weight geometry. Shared with disposeSpace(), which
+// needs the exact same teardown when the whole room goes away.
+function teardownShowcase(s) {
+  if (s.showcaseFrames) { for (const sd of SIDES) disposeStandaloneFrame(s.showcaseFrames[sd]); s.showcaseFrames = null; }
+  if (s.showcaseMeshes) { s.showcaseMeshes.forEach(removeBox); s.showcaseMeshes = null; }
+  if (s.showcaseHeadingMeshes) { for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } s.showcaseHeadingMeshes = null; }
+  s.showcaseWallMat?.dispose?.(); s.showcaseWallMat = null;
 }
 function setShowcaseEnabled(s, on) {
   s.showcaseEnabled = on;
-  if (!on) { if (s.showcaseFrames) for (const sd of SIDES) clearStandaloneFrame(s.showcaseFrames[sd]); setShowcaseVisible(s, false); }
-  else { setShowcaseVisible(s, true); cycleShowcase(); }
+  if (!on) teardownShowcase(s);
+  else if (!s.showcaseMeshes) buildShowcase(s);
 }
 // Clearance a frame's outer edge should keep from a segment end so it doesn't overlap a door jamb
 // or, at a corner, a perpendicular wall's frame — plus a visible strip of plain wall beyond that, so
@@ -1224,7 +1246,7 @@ const undoStack = [];
 function updateUndoBtn() { const b = document.getElementById('undoBtn'); if (!b) return; b.disabled = undoStack.length === 0; b.textContent = undoStack.length ? '↶ Undo: ' + undoStack[undoStack.length - 1].label : '↶ Nothing to undo'; }
 function pushUndo(label, fn) { undoStack.push({ label, fn }); if (undoStack.length > 40) undoStack.shift(); updateUndoBtn(); }
 async function doUndo() { const u = undoStack.pop(); if (!u) { toast('Nothing to undo'); updateUndoBtn(); return; } try { await u.fn(); toast('Undid: ' + u.label); } catch (e) { console.error(e); toast('Could not undo that'); } updateUndoBtn(); }
-function disposeSpace(s) { if (s.showcaseFrames) { for (const sd of SIDES) disposeStandaloneFrame(s.showcaseFrames[sd]); s.showcaseFrames = null; } if (s.showcaseMeshes) { s.showcaseMeshes.forEach(removeBox); s.showcaseMeshes = null; } if (s.showcaseHeadingMeshes) { for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } s.showcaseHeadingMeshes = null; } for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); s.strip.forEach(removeBox); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
+function disposeSpace(s) { teardownShowcase(s); for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); s.strip.forEach(removeBox); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
 async function deleteSpace(id, opts = {}) {
   if (spaces.size <= 1) { toast('Keep at least one room'); return; }
   const s = spaces.get(id); if (!s) return;
@@ -1270,11 +1292,15 @@ function maybeShowShowcaseIntro() {
   showcaseIntroSeen = true; DB.put({ frame: 'showcaseIntroSeen' });
   const mw = mainWing(); if (!mw) return;
   if (document.pointerLockElement) document.exitPointerLock();
-  setTimeout(() => {
-    const on = confirm('Your museum has a "showcase" — a small display case in the middle of the main room that automatically cycles through your photos.\n\nWant it turned on? This can be toggled on or off anytime from the ☰ menu, just above the Rooms & halls list.');
-    setShowcaseEnabled(mw, on); saveConfig(); buildWingEditor();
-    if (!isTouch && started) try { canvas.requestPointerLock?.(); } catch (e) {}
-  }, 60);
+  setTimeout(() => { document.getElementById('scIntro').classList.add('open'); }, 60);
+}
+document.getElementById('scIntroYes').onclick = () => resolveShowcaseIntro(true);
+document.getElementById('scIntroNo').onclick = () => resolveShowcaseIntro(false);
+document.getElementById('scIntro').addEventListener('mousedown', (e) => { if (e.target.id === 'scIntro') resolveShowcaseIntro(false); });
+function resolveShowcaseIntro(on) {
+  document.getElementById('scIntro').classList.remove('open');
+  const mw = mainWing(); if (mw) { setShowcaseEnabled(mw, on); saveConfig(); buildWingEditor(); }
+  if (!isTouch && started) try { canvas.requestPointerLock?.(); } catch (e) {}
 }
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
