@@ -1261,12 +1261,12 @@ const updateCount = () => {
   maybeShowShowcaseIntro();
 };
 // One-time onboarding nudge for a brand-new museum (see boot(), which only arms this when there's no
-// existing config/media/share to respect): once the visitor has hung their third piece, explain what
+// existing config/media/share to respect): once the visitor has hung their fifth piece, explain what
 // the showcase is and let them turn it on, since it otherwise stays invisible forever (off by default
 // for new museums — see the Main Hall's showcaseEnabled: false in boot()).
 function maybeShowShowcaseIntro() {
   if (showcaseIntroSeen) return;
-  if (frames.filter(f => f.filled).length < 3) return;
+  if (frames.filter(f => f.filled).length < 5) return;
   showcaseIntroSeen = true; DB.put({ frame: 'showcaseIntroSeen' });
   const mw = mainWing(); if (!mw) return;
   if (document.pointerLockElement) document.exitPointerLock();
