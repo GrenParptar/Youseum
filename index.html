@@ -86,8 +86,12 @@
   .hiddeninput { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
   #drop { position: fixed; inset: 0; z-index: 18; pointer-events: none; display: grid; place-items: center; background: rgba(255,210,122,.10); border: 3px dashed rgba(255,210,122,.7); opacity: 0; transition: opacity .15s; } #drop.show { opacity: 1; } #drop span { background: rgba(12,12,16,.9); color: #ffd27a; padding: 14px 22px; border-radius: 12px; font-size: 16px; font-weight: 600; }
   /* Lightbox — closer view of a piece */
-  #lightbox { position: fixed; inset: 0; z-index: 34; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(0,0,0,.62); backdrop-filter: blur(2px); padding: 3vh 3vw; }
+  /* overflow-y:auto + a wrapper with margin:auto centers content that fits, but lets it scroll from
+     the top (auto margins collapse to 0) instead of clipping the bottom off-screen when it doesn't —
+     e.g. a tall lbActions button row on a short phone screen. */
+  #lightbox { position: fixed; inset: 0; z-index: 34; display: none; flex-direction: column; align-items: center; background: rgba(0,0,0,.62); backdrop-filter: blur(2px); padding: 3vh 3vw; overflow-y: auto; }
   #lightbox.open { display: flex; }
+  #lbWrap { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 100%; }
   #lbStage { max-width: 92vw; max-height: 74vh; display: flex; align-items: center; justify-content: center; }
   #lbStage .lbmedia { max-width: 92vw; max-height: 74vh; border-radius: 8px; box-shadow: 0 24px 70px rgba(0,0,0,.65); background: #0c0c10; }
   #lbInfo { text-align: center; color: #f0f0f4; max-width: 92vw; }
@@ -209,6 +213,7 @@
   </div>
   <div id="lightbox">
     <button id="lbClose" title="Close">✕</button>
+    <div id="lbWrap">
     <div id="lbStage"></div>
     <div id="lbInfo">
       <div id="lbTitle">Untitled</div>
@@ -220,6 +225,7 @@
         <button id="lbHall">＋ Hall in its place</button>
         <button id="lbWing">＋ Wing in its place</button>
       </div>
+    </div>
     </div>
   </div>
   <div id="ctxmenu">
@@ -1124,11 +1130,12 @@ async function addFromUrl() {
   if (await assignFromUrl(f, u)) toast('Added from URL');
 }
 // Picks which frame a clipboard paste should land in: the frame currently open in the lightbox
-// (replacing its media) takes priority, then whatever frame you're looking at in the tour, then
-// falls back to the same "next empty frame" behavior as the Add button.
-function pasteTargetFrame() { if (lightboxOpen && lbFrame) return lbFrame; if (inTour && lookingAt) return lookingAt; return addTarget || nextEmpty(addScope); }
+// (replacing its media) takes priority, then an explicit target set just before calling in (e.g.
+// the empty-frame "Add media" menu), then whatever frame you're looking at in the tour, then falls
+// back to the same "next empty frame" behavior as the Add button.
+function pasteTargetFrame() { if (lightboxOpen && lbFrame) return lbFrame; if (addTarget) return addTarget; if (inTour && lookingAt) return lookingAt; return nextEmpty(addScope); }
 async function pasteMediaFile(file) {
-  const f = pasteTargetFrame();
+  const f = pasteTargetFrame(); addTarget = null;
   if (!f) { toast(addScope === 'room' ? 'This room is full — build more or switch scope' : 'All frames full — build a hall or wing'); return; }
   if (lightboxOpen && lbFrame === f) closeLightbox();
   await assignFile(f, file);
@@ -1137,7 +1144,7 @@ async function pasteMediaFile(file) {
 async function pasteMediaUrl(text) {
   let u; try { u = new URL(text.trim()); } catch { return; }
   if (!/^https?:$/.test(u.protocol)) return;
-  const f = pasteTargetFrame();
+  const f = pasteTargetFrame(); addTarget = null;
   if (!f) { toast(addScope === 'room' ? 'This room is full — build more or switch scope' : 'All frames full — build a hall or wing'); return; }
   if (lightboxOpen && lbFrame === f) closeLightbox();
   if (await assignFromUrl(f, u)) toast('Pasted into frame');
@@ -1160,11 +1167,14 @@ addEventListener('paste', (e) => {
 // the manual paste-catcher overlay below, which works everywhere because it lets the OS's own Paste
 // UI hand the data to a real focused text field instead.
 async function pasteFromClipboardBtn() {
-  if (navigator.clipboard?.read) {
+  // On touch, navigator.clipboard.read() essentially never has an image copied from a native app
+  // (see iOS note above) and can also hang for over a second waiting on a permission prompt that
+  // never appears — go straight to the manual paste-catcher so the tap does something immediately,
+  // instead of a stall that looks like the tap didn't register. Desktop's read() is fast and usually
+  // works, so it's still worth trying there first.
+  if (!isTouch && navigator.clipboard?.read) {
     try {
-      // navigator.clipboard.read() can hang indefinitely rather than reject — e.g. waiting on a
-      // permission prompt the browser never actually shows — so race it against a timeout instead
-      // of awaiting it directly, or a stuck read would make this button look like it does nothing.
+      // Raced against a timeout regardless, in case a desktop browser also stalls on this.
       const items = await Promise.race([navigator.clipboard.read(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 1200))]);
       for (const item of items) {
         const type = item.types.find(t => /^(image|video)\//.test(t));
@@ -1355,7 +1365,7 @@ function updateLook() {
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
 }
 const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
-function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; requestFilePicker(); } else openLightbox(f); } else if (lookingShowcase) openCtxMenu('showcase', { side: lookingShowcase }); else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
+function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) openCtxMenu('emptyframe', { frame: f }); else openLightbox(f); } else if (lookingShowcase) openCtxMenu('showcase', { side: lookingShowcase }); else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
 // Opening a native file picker is a more privileged action than the plain DOM changes interact()
 // otherwise makes (opening the lightbox, a wall/floor/showcase menu) — those are all fine to fire
 // straight from the USE button's touchstart handler (see hudPress below), but iOS Safari can
@@ -1429,6 +1439,17 @@ function ctxAddColorPicker(parent, label, current, onPick) {
   row.append(inp, code); parent.appendChild(row);
 }
 function openCtxMenu(kind, target) {
+  if (kind === 'emptyframe') {
+    const f = target.frame; ctxTarget = { kind: 'emptyframe', frame: f };
+    const optsEl = document.getElementById('ctxopts'); optsEl.innerHTML = '';
+    document.getElementById('ctxtitle').textContent = 'Add media';
+    ctxAddBtn(optsEl, '＋ Choose a photo, video or GIF', 'accent', () => { closeCtxMenu(); addTarget = f; fileInput.click(); });
+    ctxAddBtn(optsEl, '📋 Paste from clipboard', '', () => { closeCtxMenu(); addTarget = f; pasteFromClipboardBtn(); });
+    ctxAddBtn(optsEl, '🔗 Add from a URL', '', () => { closeCtxMenu(); addTarget = f; addFromUrl(); });
+    ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
+    if (document.pointerLockElement) document.exitPointerLock();
+    return;
+  }
   if (kind === 'showcase') {
     const s = mainWing(); if (!s) return;
     const side = target?.side || null;
