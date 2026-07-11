@@ -1271,7 +1271,7 @@ function maybeShowShowcaseIntro() {
   const mw = mainWing(); if (!mw) return;
   if (document.pointerLockElement) document.exitPointerLock();
   setTimeout(() => {
-    const on = confirm('Your museum has a "showcase" — a small display case in the middle of the main room that automatically cycles through your photos.\n\nWant it turned on? You can flip this anytime from the ☰ menu, just above the Rooms & halls list.');
+    const on = confirm('Your museum has a "showcase" — a small display case in the middle of the main room that automatically cycles through your photos.\n\nWant it turned on? This can be toggled on or off anytime from the ☰ menu, just above the Rooms & halls list.');
     setShowcaseEnabled(mw, on); saveConfig(); buildWingEditor();
     if (!isTouch && started) try { canvas.requestPointerLock?.(); } catch (e) {}
   }, 60);
