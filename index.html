@@ -282,12 +282,29 @@ const LITE = location.search.includes('lite');
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 /* ===== IndexedDB ===== */
-const DB = (() => { let dbp; const open = () => dbp || (dbp = new Promise((res, rej) => { const r = indexedDB.open('my-museum', 1); r.onupgradeneeded = () => r.result.createObjectStore('media', { keyPath: 'frame' }); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }));
+// indexedDB.open() can fire neither onsuccess nor onerror in some browser configurations — e.g.
+// storage blocked by tracking-prevention/site-data settings, or a stale connection elsewhere
+// blocking a version change — which otherwise hangs this Promise (and everything awaiting it,
+// including boot()) forever, stuck on "Building your museum…" with no error at all. A timeout plus
+// an onblocked handler guarantee this always settles, and every DB method below fails soft (empty
+// results / silent no-ops) so the museum still boots — just without persistence — instead of hanging.
+const DB = (() => {
+  let dbp;
+  const open = () => dbp || (dbp = new Promise((res, rej) => {
+    let settled = false;
+    const fail = (err) => { if (settled) return; settled = true; clearTimeout(to); dbp = null; rej(err); };
+    const to = setTimeout(() => fail(new Error('IndexedDB timed out')), 4000);
+    const r = indexedDB.open('my-museum', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('media', { keyPath: 'frame' });
+    r.onsuccess = () => { if (settled) return; settled = true; clearTimeout(to); res(r.result); };
+    r.onerror = () => fail(r.error);
+    r.onblocked = () => fail(new Error('IndexedDB blocked (another tab may need to be closed)'));
+  }));
   const st = async (m) => (await open()).transaction('media', m).objectStore('media');
-  return { async put(rec) { const s = await st('readwrite'); return new Promise((ok, no) => { const q = s.put(rec); q.onsuccess = ok; q.onerror = () => no(q.error); }); },
-    async get(k) { const s = await st('readonly'); return new Promise((ok) => { const q = s.get(k); q.onsuccess = () => ok(q.result); q.onerror = () => ok(null); }); },
-    async del(k) { const s = await st('readwrite'); return new Promise((ok) => { s.delete(k).onsuccess = ok; }); },
-    async all() { const s = await st('readonly'); return new Promise((ok) => { const q = s.getAll(); q.onsuccess = () => ok(q.result || []); q.onerror = () => ok([]); }); }, };
+  return { async put(rec) { try { const s = await st('readwrite'); return new Promise((ok, no) => { const q = s.put(rec); q.onsuccess = ok; q.onerror = () => no(q.error); }); } catch (e) { console.warn('DB.put failed', e); } },
+    async get(k) { try { const s = await st('readonly'); return new Promise((ok) => { const q = s.get(k); q.onsuccess = () => ok(q.result); q.onerror = () => ok(null); }); } catch (e) { return null; } },
+    async del(k) { try { const s = await st('readwrite'); return new Promise((ok) => { s.delete(k).onsuccess = ok; }); } catch (e) {} },
+    async all() { try { const s = await st('readonly'); return new Promise((ok) => { const q = s.getAll(); q.onsuccess = () => ok(q.result || []); q.onerror = () => ok([]); }); } catch (e) { return []; } }, };
 })();
 
 /* ===== Renderer / scene ===== */
