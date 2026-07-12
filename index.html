@@ -86,8 +86,12 @@
   .hiddeninput { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
   #drop { position: fixed; inset: 0; z-index: 18; pointer-events: none; display: grid; place-items: center; background: rgba(255,210,122,.10); border: 3px dashed rgba(255,210,122,.7); opacity: 0; transition: opacity .15s; } #drop.show { opacity: 1; } #drop span { background: rgba(12,12,16,.9); color: #ffd27a; padding: 14px 22px; border-radius: 12px; font-size: 16px; font-weight: 600; }
   /* Lightbox — closer view of a piece */
-  #lightbox { position: fixed; inset: 0; z-index: 34; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(0,0,0,.62); backdrop-filter: blur(2px); padding: 3vh 3vw; }
+  /* overflow-y:auto + a wrapper with margin:auto centers content that fits, but lets it scroll from
+     the top (auto margins collapse to 0) instead of clipping the bottom off-screen when it doesn't —
+     e.g. a tall lbActions button row on a short phone screen. */
+  #lightbox { position: fixed; inset: 0; z-index: 34; display: none; flex-direction: column; align-items: center; background: rgba(0,0,0,.62); backdrop-filter: blur(2px); padding: 3vh 3vw; overflow-y: auto; }
   #lightbox.open { display: flex; }
+  #lbWrap { margin: auto 0; display: flex; flex-direction: column; align-items: center; gap: 14px; max-width: 100%; }
   #lbStage { max-width: 92vw; max-height: 74vh; display: flex; align-items: center; justify-content: center; }
   #lbStage .lbmedia { max-width: 92vw; max-height: 74vh; border-radius: 8px; box-shadow: 0 24px 70px rgba(0,0,0,.65); background: #0c0c10; }
   #lbInfo { text-align: center; color: #f0f0f4; max-width: 92vw; }
@@ -113,6 +117,24 @@
   .ctxcolor::-webkit-color-swatch-wrapper { padding: 2px; } .ctxcolor::-webkit-color-swatch { border: none; border-radius: 6px; } .ctxcolor::-moz-color-swatch { border: none; border-radius: 6px; }
   .ctxcode { flex: 1; min-width: 100px; background: rgba(0,0,0,.3); border: 2px solid rgba(255,255,255,.16); border-radius: 9px; color: #ececf2; font: 600 13px ui-monospace, Menlo, Consolas, monospace; padding: 0 10px; text-transform: lowercase; }
   #ctxcancel { cursor: pointer; margin-top: 6px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #cfcfd8; font: 600 14px inherit; padding: 11px; border-radius: 10px; } #ctxcancel:hover { background: rgba(255,255,255,.12); }
+  /* Manual paste-catcher — shown when the async Clipboard API can't read the clipboard directly
+     (notably iOS Safari, which blocks JS from pulling images copied from native apps like Photos).
+     Focusing a real text field and letting the user trigger the OS's own "Paste" bubble is the one
+     paste path that reliably works everywhere. */
+  #pcOverlay { position: fixed; inset: 0; z-index: 36; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); backdrop-filter: blur(2px); padding: 4vh 4vw; }
+  #pcOverlay.open { display: flex; }
+  #pcCard { width: min(340px, 92vw); background: rgba(18,18,24,.97); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 20px; box-shadow: 0 24px 70px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 12px; text-align: center; }
+  #pcCard .pcmsg { font-size: 14px; color: #d6d6df; line-height: 1.5; } #pcCard .pcmsg b { color: #ffd27a; }
+  #pcInput { width: 100%; min-height: 52px; background: rgba(0,0,0,.3); border: 2px dashed rgba(255,210,122,.5); color: #fff; border-radius: 10px; padding: 16px; font: 600 14px inherit; text-align: center; outline: none; overflow-wrap: anywhere; }
+  #pcInput:empty::before { content: attr(data-placeholder); color: #8a8a97; }
+  #pcCancel { cursor: pointer; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #cfcfd8; font: 600 14px inherit; padding: 11px; border-radius: 10px; } #pcCancel:hover { background: rgba(255,255,255,.12); }
+  /* One-time "here's the showcase" explainer, shown after a new museum's fifth filled frame. */
+  #scIntro { position: fixed; inset: 0; z-index: 37; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,.55); backdrop-filter: blur(2px); padding: 4vh 4vw; }
+  #scIntro.open { display: flex; }
+  #scIntroCard { width: min(380px, 92vw); background: rgba(18,18,24,.97); border: 1px solid rgba(255,255,255,.12); border-radius: 16px; padding: 26px; box-shadow: 0 24px 70px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 12px; text-align: center; }
+  #scIntroTitle { font: 650 19px Georgia, serif; color: #fff; }
+  #scIntroMsg { font-size: 13.5px; color: #d6d6df; line-height: 1.55; }
+  #scIntroBtns { display: flex; flex-direction: column; gap: 9px; margin-top: 6px; }
 </style>
 <script type="importmap">
 { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
@@ -131,6 +153,9 @@
     <div class="grp">
       <div class="lbl">Add media</div>
       <button class="item accent" data-act="add">＋ Add photos, videos &amp; GIFs</button>
+      <button class="item" data-act="addurl">🔗 Add from a URL</button>
+      <button class="item" data-act="pasteclip">📋 Paste from clipboard</button>
+      <div class="lbl" style="margin-top:2px;color:#6a6a76">Or just press <b style="color:#9a9aa6">Ctrl/⌘+V</b> anywhere — pastes a copied photo (or a copied link) into the frame you're looking at, or the lightbox if one's open.</div>
       <div class="lbl" style="margin-top:6px">Place them in</div>
       <div class="seg" id="scopeSeg"><button data-scope="room">This room</button><button data-scope="all" class="on">Whole museum</button></div>
       <div id="count">0 / 0 filled</div>
@@ -144,6 +169,11 @@
       <div class="lbl">Explore</div>
       <button class="item" data-act="overview">🗂 Overview of all rooms</button>
       <button class="item" data-act="tour">🎬 Start guided tour</button>
+    </div>
+    <div class="grp">
+      <div class="lbl">Showcase</div>
+      <div class="musicrow"><label class="switch"><input type="checkbox" id="showcaseOn"><span></span></label><span>Show the centre display case</span></div>
+      <div class="lbl" style="margin-top:2px;color:#6a6a76">A small case in the main room that automatically cycles through your photos. Turn it on to configure what it shows, in the main room's card below.</div>
     </div>
     <div class="grp">
       <div class="lbl">Rooms &amp; halls — name, theme &amp; music</div>
@@ -180,6 +210,7 @@
         <div class="row"><kbd>Shift</kbd> Run</div><div class="row"><kbd>L-Click</kbd> Fill / build hall</div>
         <div class="row"><kbd>R-Click</kbd> Build a wing</div><div class="row"><kbd>E</kbd> Play · <kbd>M</kbd> Mute</div>
         <div class="row"><kbd>T</kbd> Title · <kbd>⌫</kbd> Clear</div><div class="row"><kbd>Esc</kbd> Pause &amp; free cursor</div>
+        <div class="row"><kbd>Ctrl/⌘+V</kbd> Paste a photo</div>
       </div>
       <div class="controls touchonly" style="grid-template-columns:1fr">
         <div class="row">🕹️ Left thumb to move · drag right side to look</div>
@@ -194,16 +225,19 @@
   </div>
   <div id="lightbox">
     <button id="lbClose" title="Close">✕</button>
+    <div id="lbWrap">
     <div id="lbStage"></div>
     <div id="lbInfo">
       <div id="lbTitle">Untitled</div>
       <div id="lbMeta"></div>
       <div id="lbActions">
         <button id="lbTitleBtn">✎ Title</button>
+        <button id="lbPaste">📋 Paste to replace</button>
         <button id="lbRemove">🗑 Remove media</button>
         <button id="lbHall">＋ Hall in its place</button>
         <button id="lbWing">＋ Wing in its place</button>
       </div>
+    </div>
     </div>
   </div>
   <div id="ctxmenu">
@@ -211,6 +245,23 @@
       <div id="ctxtitle">Options</div>
       <div id="ctxopts"></div>
       <button id="ctxcancel">Cancel</button>
+    </div>
+  </div>
+  <div id="pcOverlay">
+    <div id="pcCard">
+      <div class="pcmsg">Tap the box below, then choose <b>Paste</b> from the menu that pops up.</div>
+      <div id="pcInput" contenteditable="true" data-placeholder="Tap here…" autocorrect="off" autocapitalize="off" spellcheck="false"></div>
+      <button id="pcCancel">Cancel</button>
+    </div>
+  </div>
+  <div id="scIntro">
+    <div id="scIntroCard">
+      <div id="scIntroTitle">Turn on the showcase?</div>
+      <div id="scIntroMsg">Your museum has a "showcase" — a small display case in the middle of the main room that automatically cycles through your photos. This can be toggled on or off anytime from the ☰ menu, just above the Rooms &amp; halls list.</div>
+      <div id="scIntroBtns">
+        <button id="scIntroYes" class="btn primary">Yes, please</button>
+        <button id="scIntroNo" class="btn ghost" style="margin-top:0">No, thank you</button>
+      </div>
     </div>
   </div>
   <div id="toast"></div>
@@ -354,6 +405,10 @@ const SIDES = ['N', 'S', 'E', 'W'], OPP = { N: 'S', S: 'N', E: 'W', W: 'E' };
 const SIDE_NAME = { N: 'North', S: 'South', E: 'East', W: 'West' };
 const spaces = new Map(); const connections = []; let nextId = 0;
 let showSectionTitles = true;
+// Whether the one-time "here's what the showcase is" prompt has already fired (or never needed to —
+// see boot()). Defaults true so it can never accidentally show before boot() has had a chance to set
+// it from saved state.
+let showcaseIntroSeen = true;
 const YAWFOR = { N: 0, S: Math.PI, E: -Math.PI / 2, W: Math.PI / 2 };
 
 /* ===== collider-aware box ===== */
@@ -493,7 +548,11 @@ function updateShowcaseTheme(s) {
 function showcaseHeadingText(s, sd) { return (s.showcaseHeadings?.[sd] ?? 'Showcase').trim(); }
 function updateShowcaseHeading(s) {
   if (!s.showcaseHeadingMeshes) return;
-  for (const sd of SIDES) { const txt = showcaseHeadingText(s, sd); const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, s.accent); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+  // Respect showcaseEnabled too, not just showSectionTitles — otherwise any theme change (wall
+  // color, floor, preset) routed through applyTheme() re-shows the showcase's wall headers even
+  // while the showcase itself is toggled off.
+  const on = s.showcaseEnabled !== false;
+  for (const sd of SIDES) { const txt = showcaseHeadingText(s, sd); const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, s.accent); m.material.needsUpdate = true; m.visible = on && showSectionTitles && !!txt; }
 }
 function positionShowcaseHeading(s, side, m) {
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2, x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
@@ -511,6 +570,11 @@ function buildShowcase(s) {
   if (s.showcaseScope == null) s.showcaseScope = 'all';
   if (s.showcaseHeadings == null) s.showcaseHeadings = { N: 'Showcase', S: 'Showcase', E: 'Showcase', W: 'Showcase' };
   if (s.showcaseEnabled == null) s.showcaseEnabled = true;
+  if (!s.showcaseWallScopes) s.showcaseWallScopes = { N: null, S: null, E: null, W: null };
+  // While disabled, nothing is built at all — no meshes, no colliders, no standalone frames — so a
+  // visitor can simply walk through where the showcase would sit instead of it being invisible but
+  // still solid. Re-enabling calls this again (see setShowcaseEnabled) to build it fresh.
+  if (s.showcaseEnabled === false) return;
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2;
   const x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
   s.showcaseWallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: 0.9 });
@@ -530,25 +594,25 @@ function buildShowcase(s) {
     W: addStandaloneFrame(s.id + ':showcase:W', x0 - T / 2 - 0.04, 1.75, cz, -Math.PI / 2, maxHalf, SHOWCASE_MAXARTH),
   };
   for (const sd of SIDES) s.showcaseFrames[sd].art.userData.showcaseSide = sd;
-  if (!s.showcaseWallScopes) s.showcaseWallScopes = { N: null, S: null, E: null, W: null };
   s.showcaseHeadingMeshes = {};
   for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', s.accent), transparent: true, depthWrite: false })); positionShowcaseHeading(s, sd, m); scene.add(m); s.showcaseHeadingMeshes[sd] = m; }
   updateShowcaseHeading(s);
-  if (s.showcaseEnabled === false) setShowcaseVisible(s, false); else cycleShowcase();
+  cycleShowcase();
 }
-// Toggling the showcase off hides its walls/frames/heading AND clears whatever media those frames
-// were holding (stopping any GIF decode / video playback), so a user testing whether the showcase is
-// the source of a stutter gets a clean "it's just not there" rather than merely invisible geometry
-// still cycling and decoding in the background.
-function setShowcaseVisible(s, on) {
-  if (s.showcaseMeshes) for (const m of s.showcaseMeshes) m.visible = on;
-  if (s.showcaseHeadingMeshes) for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; if (m) m.visible = on && showSectionTitles && !!showcaseHeadingText(s, sd); }
-  if (s.showcaseFrames) for (const sd of SIDES) { const f = s.showcaseFrames[sd]; if (f) f.group.visible = on; }
+// Fully tears the showcase's meshes, colliders, standalone frames, and wall headers back out of the
+// scene (rather than just hiding them), so a disabled showcase is genuinely not there — walkable
+// through, no lingering GIF/video decode, no dead-weight geometry. Shared with disposeSpace(), which
+// needs the exact same teardown when the whole room goes away.
+function teardownShowcase(s) {
+  if (s.showcaseFrames) { for (const sd of SIDES) disposeStandaloneFrame(s.showcaseFrames[sd]); s.showcaseFrames = null; }
+  if (s.showcaseMeshes) { s.showcaseMeshes.forEach(removeBox); s.showcaseMeshes = null; }
+  if (s.showcaseHeadingMeshes) { for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } s.showcaseHeadingMeshes = null; }
+  s.showcaseWallMat?.dispose?.(); s.showcaseWallMat = null;
 }
 function setShowcaseEnabled(s, on) {
   s.showcaseEnabled = on;
-  if (!on) { if (s.showcaseFrames) for (const sd of SIDES) clearStandaloneFrame(s.showcaseFrames[sd]); setShowcaseVisible(s, false); }
-  else { setShowcaseVisible(s, true); cycleShowcase(); }
+  if (!on) teardownShowcase(s);
+  else if (!s.showcaseMeshes) buildShowcase(s);
 }
 // Clearance a frame's outer edge should keep from a segment end so it doesn't overlap a door jamb
 // or, at a corner, a perpendicular wall's frame — plus a visible strip of plain wall beyond that, so
@@ -1087,6 +1151,104 @@ async function assignFile(f, file, record = true) {
   try { await DB.put({ frame: f.id, type, blob: file, title: f.title }); } catch { toast('Storage full — shown this session only'); }
   if (record) pushUndo('add media', () => restoreFrame(f, prev.rec, prev.title));
 }
+// Guess a mime type from a URL's extension when the server doesn't send a usable Content-Type
+// (some CDNs reply with "application/octet-stream" or nothing at all).
+const URL_EXT_MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', bmp: 'image/bmp', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', avi: 'video/x-msvideo', m4v: 'video/mp4' };
+function guessTypeFromUrl(u) { const ext = (u.pathname.split('.').pop() || '').toLowerCase(); return URL_EXT_MIME[ext] || ''; }
+// Fetches a directly-linked image/video URL and hangs it in frame f, like any other file. Only
+// works for hosts that (a) serve the raw media file at that URL and (b) send CORS headers
+// permitting cross-origin reads — most photo/video-sharing apps (Google Photos, Facebook, Apple
+// Photos share pages) don't expose links like that, since they serve an HTML viewer page instead
+// of the raw file. Returns true on success so callers can pick their own success toast.
+async function assignFromUrl(f, u) {
+  toast('Fetching…');
+  let blob;
+  try { const res = await fetch(u.href, { mode: 'cors' }); if (!res.ok) throw new Error('http ' + res.status); blob = await res.blob(); }
+  catch { toast('Could not load that link — the site may not allow direct embedding (common with Google Photos, Facebook & Apple Photos share links)'); return false; }
+  const type = (blob.type && blob.type !== 'application/octet-stream') ? blob.type : guessTypeFromUrl(u);
+  if (!/^image\//.test(type) && !/^video\//.test(type)) { toast('That link isn\'t a supported image or video file'); return false; }
+  const name = u.pathname.split('/').pop() || 'media';
+  await assignFile(f, new File([blob], name, { type }));
+  return true;
+}
+async function addFromUrl() {
+  const raw = prompt('Paste a direct link to an image or video file (e.g. ending in .jpg, .png, .mp4)…');
+  if (raw === null) return;
+  const trimmed = raw.trim(); if (!trimmed) return;
+  let u; try { u = new URL(trimmed); } catch { toast('That doesn\'t look like a valid URL'); return; }
+  if (!/^https?:$/.test(u.protocol)) { toast('URL must start with http:// or https://'); return; }
+  const f = addTarget || nextEmpty(addScope); addTarget = null;
+  if (!f) { toast(addScope === 'room' ? 'This room is full — build more or switch scope' : 'All frames full — build a hall or wing'); return; }
+  if (await assignFromUrl(f, u)) toast('Added from URL');
+}
+// Picks which frame a clipboard paste should land in: the frame currently open in the lightbox
+// (replacing its media) takes priority, then an explicit target set just before calling in (e.g.
+// the empty-frame "Add media" menu), then whatever frame you're looking at in the tour, then falls
+// back to the same "next empty frame" behavior as the Add button.
+function pasteTargetFrame() { if (lightboxOpen && lbFrame) return lbFrame; if (addTarget) return addTarget; if (inTour && lookingAt) return lookingAt; return nextEmpty(addScope); }
+async function pasteMediaFile(file) {
+  const f = pasteTargetFrame(); addTarget = null;
+  if (!f) { toast(addScope === 'room' ? 'This room is full — build more or switch scope' : 'All frames full — build a hall or wing'); return; }
+  if (lightboxOpen && lbFrame === f) closeLightbox();
+  await assignFile(f, file);
+  toast('Pasted into frame');
+}
+async function pasteMediaUrl(text) {
+  let u; try { u = new URL(text.trim()); } catch { return; }
+  if (!/^https?:$/.test(u.protocol)) return;
+  const f = pasteTargetFrame(); addTarget = null;
+  if (!f) { toast(addScope === 'room' ? 'This room is full — build more or switch scope' : 'All frames full — build a hall or wing'); return; }
+  if (lightboxOpen && lbFrame === f) closeLightbox();
+  if (await assignFromUrl(f, u)) toast('Pasted into frame');
+}
+// Ctrl/Cmd+V paste, anywhere except into a real text field (so pasting into room-name/hex inputs
+// still works normally). Handles an actual image/video clipboard item (e.g. a copied screenshot or
+// "Copy Image" from a browser) first, falling back to a plain pasted URL.
+addEventListener('paste', (e) => {
+  const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  const items = [...(e.clipboardData?.items || [])];
+  const fileItem = items.find(it => it.kind === 'file' && /^(image|video)\//.test(it.type));
+  if (fileItem) { e.preventDefault(); const file = fileItem.getAsFile(); if (file) pasteMediaFile(file); return; }
+  const text = e.clipboardData?.getData('text/plain');
+  if (text && /^https?:\/\//i.test(text.trim())) { e.preventDefault(); pasteMediaUrl(text); }
+});
+// Explicit "Paste from clipboard" action, for touch users (no Ctrl/Cmd+V) or when the paste event
+// doesn't fire for some reason. Tries the async Clipboard API first (works on desktop Chrome/Edge
+// and most of Android); if that's unsupported, blocked, or comes back empty — as it reliably does on
+// iOS Safari, which won't let JS pull an image copied from a native app like Photos — falls back to
+// the manual paste-catcher overlay below, which works everywhere because it lets the OS's own Paste
+// UI hand the data to a real focused text field instead.
+async function pasteFromClipboardBtn() {
+  // On touch, navigator.clipboard.read() essentially never has an image copied from a native app
+  // (see iOS note above) and can also hang for over a second waiting on a permission prompt that
+  // never appears — go straight to the manual paste-catcher so the tap does something immediately,
+  // instead of a stall that looks like the tap didn't register. Desktop's read() is fast and usually
+  // works, so it's still worth trying there first.
+  if (!isTouch && navigator.clipboard?.read) {
+    try {
+      // Raced against a timeout regardless, in case a desktop browser also stalls on this.
+      const items = await Promise.race([navigator.clipboard.read(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 1200))]);
+      for (const item of items) {
+        const type = item.types.find(t => /^(image|video)\//.test(t));
+        if (type) { const blob = await item.getType(type); await pasteMediaFile(new File([blob], 'clipboard', { type })); return; }
+      }
+    } catch { /* fall through to the manual paste-catcher */ }
+  }
+  openPasteCatcher();
+}
+const pcOverlay = document.getElementById('pcOverlay'), pcInput = document.getElementById('pcInput');
+function openPasteCatcher() { pcOverlay.classList.add('open'); pcInput.textContent = ''; setTimeout(() => pcInput.focus(), 60); }
+function closePasteCatcher() { pcOverlay.classList.remove('open'); pcInput.blur(); pcInput.textContent = ''; }
+document.getElementById('pcCancel').onclick = closePasteCatcher;
+pcOverlay.addEventListener('mousedown', (e) => { if (e.target === pcOverlay) closePasteCatcher(); });
+pcInput.addEventListener('paste', (e) => {
+  const items = [...(e.clipboardData?.items || [])];
+  const fileItem = items.find(it => it.kind === 'file' && /^(image|video)\//.test(it.type));
+  if (fileItem) { e.preventDefault(); const file = fileItem.getAsFile(); closePasteCatcher(); if (file) pasteMediaFile(file); return; }
+  const text = e.clipboardData?.getData('text/plain');
+  if (text && /^https?:\/\//i.test(text.trim())) { e.preventDefault(); closePasteCatcher(); pasteMediaUrl(text); return; }
+  setTimeout(() => { closePasteCatcher(); toast('No photo, video or link found in that paste'); }, 60);
+});
 async function restoreFrame(f, rec, title) {
   stopGif(f); if (f.video) { f.video.pause(); f.video = null; } if (audibleVideo === f) audibleVideo = null;
   if (rec && rec.blob) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); try { await DB.put(rec); } catch {} drawPlate(f); }
@@ -1101,7 +1263,7 @@ const undoStack = [];
 function updateUndoBtn() { const b = document.getElementById('undoBtn'); if (!b) return; b.disabled = undoStack.length === 0; b.textContent = undoStack.length ? '↶ Undo: ' + undoStack[undoStack.length - 1].label : '↶ Nothing to undo'; }
 function pushUndo(label, fn) { undoStack.push({ label, fn }); if (undoStack.length > 40) undoStack.shift(); updateUndoBtn(); }
 async function doUndo() { const u = undoStack.pop(); if (!u) { toast('Nothing to undo'); updateUndoBtn(); return; } try { await u.fn(); toast('Undid: ' + u.label); } catch (e) { console.error(e); toast('Could not undo that'); } updateUndoBtn(); }
-function disposeSpace(s) { if (s.showcaseFrames) { for (const sd of SIDES) disposeStandaloneFrame(s.showcaseFrames[sd]); s.showcaseFrames = null; } if (s.showcaseMeshes) { s.showcaseMeshes.forEach(removeBox); s.showcaseMeshes = null; } if (s.showcaseHeadingMeshes) { for (const sd of SIDES) { const m = s.showcaseHeadingMeshes[sd]; scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } s.showcaseHeadingMeshes = null; } for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); s.strip.forEach(removeBox); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
+function disposeSpace(s) { teardownShowcase(s); for (const sd of SIDES) clearWallSide(s, sd); removeBox(s.floor); removeBox(s.ceil); s.strip.forEach(removeBox); for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (m) { scene.remove(m); m.material.map?.dispose?.(); m.material.dispose?.(); m.geometry.dispose?.(); } } scene.remove(s.point); for (const sp of s.spots) { scene.remove(sp); if (sp.target) scene.remove(sp.target); } scene.remove(s.stars); }
 async function deleteSpace(id, opts = {}) {
   if (spaces.size <= 1) { toast('Keep at least one room'); return; }
   const s = spaces.get(id); if (!s) return;
@@ -1135,18 +1297,31 @@ async function rebuildSpace(snap) {
 const updateCount = () => {
   const pool = addScope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames;
   document.getElementById('count').textContent = `${pool.filter(f => f.filled).length} / ${pool.length} filled`;
+  maybeShowShowcaseIntro();
 };
+// One-time onboarding nudge for a brand-new museum (see boot(), which only arms this when there's no
+// existing config/media/share to respect): once the visitor has hung their fifth piece, explain what
+// the showcase is and let them turn it on, since it otherwise stays invisible forever (off by default
+// for new museums — see the Main Hall's showcaseEnabled: false in boot()).
+function maybeShowShowcaseIntro() {
+  if (showcaseIntroSeen) return;
+  if (frames.filter(f => f.filled).length < 5) return;
+  showcaseIntroSeen = true; DB.put({ frame: 'showcaseIntroSeen' });
+  const mw = mainWing(); if (!mw) return;
+  if (document.pointerLockElement) document.exitPointerLock();
+  setTimeout(() => { document.getElementById('scIntro').classList.add('open'); }, 60);
+}
+document.getElementById('scIntroYes').onclick = () => resolveShowcaseIntro(true);
+document.getElementById('scIntroNo').onclick = () => resolveShowcaseIntro(false);
+document.getElementById('scIntro').addEventListener('mousedown', (e) => { if (e.target.id === 'scIntro') resolveShowcaseIntro(false); });
+function resolveShowcaseIntro(on) {
+  document.getElementById('scIntro').classList.remove('open');
+  const mw = mainWing(); if (mw) { setShowcaseEnabled(mw, on); saveConfig(); buildWingEditor(); }
+  if (!isTouch && started) try { canvas.requestPointerLock?.(); } catch (e) {}
+}
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
 const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
-
-/* ===== sample art ===== */
-function drawSample(g, w, h, k) { const pals = [['#ff9a4d', '#ffd86b'], ['#4d79ff', '#9b6bff'], ['#0f2027', '#2c5364'], ['#34d399', '#a7f3d0'], ['#f472b6', '#c084fc'], ['#0ea5e9', '#2dd4bf']][k % 6]; const grad = g.createLinearGradient(0, 0, w, h); grad.addColorStop(0, pals[0]); grad.addColorStop(1, pals[1]); g.fillStyle = grad; g.fillRect(0, 0, w, h); g.globalAlpha = .18; for (let i = 0; i < 6; i++) { g.fillStyle = i % 2 ? '#ffffff' : '#000000'; g.beginPath(); g.arc(Math.random() * w, Math.random() * h, 60 + Math.random() * 160, 0, 7); g.fill(); } g.globalAlpha = 1; if (k === 5) { g.fillStyle = 'rgba(0,0,0,.32)'; g.fillRect(w * .12, h * .34, w * .76, h * .32); g.fillStyle = '#fff'; g.textAlign = 'center'; g.font = '700 60px Georgia, serif'; g.fillText('Your Museum', w / 2, h * .47); g.font = '400 26px system-ui'; g.fillText('face a wall & click to build', w / 2, h * .57); } else { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 8; for (let i = 0; i < 4; i++) { g.beginPath(); g.moveTo(0, Math.random() * h); g.bezierCurveTo(w * .3, Math.random() * h, w * .6, Math.random() * h, w, Math.random() * h); g.stroke(); } }
-  // Stamped onto the pixels themselves (not just the caption below the frame) so it survives export/
-  // sharing and a new user can never mistake these starter pieces for their own photos.
-  g.fillStyle = 'rgba(0,0,0,.4)'; g.fillRect(0, h - 44, w, 44); g.fillStyle = 'rgba(255,255,255,.92)'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '700 22px system-ui'; g.fillText('SAMPLE IMAGE', w / 2, h - 22); }
-function makeSampleBlob(k) { return new Promise((res) => { const c = document.createElement('canvas'); c.width = 900; c.height = 620; drawSample(c.getContext('2d'), 900, 620, k); c.toBlob(b => res(b), 'image/jpeg', 0.9); }); }
-async function addSamples() { const s = spaces.values().next().value; const fl = spaceFramesList(s).slice(0, 6); const titles = ['Sunrise', 'Aurora', 'Deep Sea', 'Meadow', 'Bloom', 'Your Museum']; for (let k = 0; k < fl.length; k++) { const blob = await makeSampleBlob(k); fl[k].title = titles[k]; await assignFile(fl[k], new File([blob], 'sample' + k + '.jpg', { type: 'image/jpeg' }), false); drawPlate(fl[k]); } }
 
 /* ===== showcase (main wing's centre display) ===== */
 function mainWing() { for (const s of spaces.values()) if (s.type === 'room') return s; return null; }
@@ -1255,7 +1430,7 @@ function updateLook() {
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
 }
 const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
-function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) { addTarget = f; requestFilePicker(); } else openLightbox(f); } else if (lookingShowcase) openCtxMenu('showcase', { side: lookingShowcase }); else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
+function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) openCtxMenu('emptyframe', { frame: f }); else openLightbox(f); } else if (lookingShowcase) openCtxMenu('showcase', { side: lookingShowcase }); else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
 // Opening a native file picker is a more privileged action than the plain DOM changes interact()
 // otherwise makes (opening the lightbox, a wall/floor/showcase menu) — those are all fine to fire
 // straight from the USE button's touchstart handler (see hudPress below), but iOS Safari can
@@ -1288,6 +1463,7 @@ function closeLightbox() { const st = document.getElementById('lbStage'); st.que
 document.getElementById('lbClose').onclick = closeLightbox;
 document.getElementById('lightbox').addEventListener('mousedown', (e) => { if (e.target.id === 'lightbox') closeLightbox(); });
 document.getElementById('lbTitleBtn').onclick = () => { const f = lbFrame; if (!f) return; const t = prompt('Title for this piece:', f.title || ''); if (t !== null) { f.title = t.trim(); drawPlate(f); DB.get(f.id).then(rec => { if (rec) { rec.title = f.title; DB.put(rec); } }); document.getElementById('lbTitle').textContent = f.title || 'Untitled'; } };
+document.getElementById('lbPaste').onclick = () => pasteFromClipboardBtn();
 document.getElementById('lbRemove').onclick = () => { const f = lbFrame; closeLightbox(); if (f) { clearFrameUndoable(f); toast('Removed media'); } };
 document.getElementById('lbHall').onclick = () => { const f = lbFrame; closeLightbox(); if (f) buildAtFrame('hall', f); };
 document.getElementById('lbWing').onclick = () => { const f = lbFrame; closeLightbox(); if (f) buildAtFrame('wing', f); };
@@ -1328,6 +1504,17 @@ function ctxAddColorPicker(parent, label, current, onPick) {
   row.append(inp, code); parent.appendChild(row);
 }
 function openCtxMenu(kind, target) {
+  if (kind === 'emptyframe') {
+    const f = target.frame; ctxTarget = { kind: 'emptyframe', frame: f };
+    const optsEl = document.getElementById('ctxopts'); optsEl.innerHTML = '';
+    document.getElementById('ctxtitle').textContent = 'Add media';
+    ctxAddBtn(optsEl, '＋ Choose a photo, video or GIF', 'accent', () => { closeCtxMenu(); addTarget = f; fileInput.click(); });
+    ctxAddBtn(optsEl, '📋 Paste from clipboard', '', () => { closeCtxMenu(); addTarget = f; pasteFromClipboardBtn(); });
+    ctxAddBtn(optsEl, '🔗 Add from a URL', '', () => { closeCtxMenu(); addTarget = f; addFromUrl(); });
+    ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
+    if (document.pointerLockElement) document.exitPointerLock();
+    return;
+  }
   if (kind === 'showcase') {
     const s = mainWing(); if (!s) return;
     const side = target?.side || null;
@@ -1470,7 +1657,7 @@ document.getElementById('startAdd').onclick = () => { addTarget = null; fileInpu
 document.querySelectorAll('#scopeSeg button').forEach(b => b.onclick = () => { addScope = b.dataset.scope; document.querySelectorAll('#scopeSeg button').forEach(x => x.classList.toggle('on', x === b)); updateCount(); });
 let musicScope = 'global';
 menu.querySelectorAll('button[data-act]').forEach(b => b.onclick = () => { const a = b.dataset.act;
-  if (a === 'add') { addTarget = null; fileInput.click(); } else if (a === 'save') saveGallery(); else if (a === 'share') shareLink(); else if (a === 'export') exportGallery(); else if (a === 'import') document.getElementById('importFile').click();
+  if (a === 'add') { addTarget = null; fileInput.click(); } else if (a === 'addurl') { addTarget = null; addFromUrl(); } else if (a === 'pasteclip') { addTarget = null; pasteFromClipboardBtn(); } else if (a === 'save') saveGallery(); else if (a === 'share') shareLink(); else if (a === 'export') exportGallery(); else if (a === 'import') document.getElementById('importFile').click();
   else if (a === 'undo') doUndo();
   else if (a === 'overview') openOverview();
   else if (a === 'loadmusic') { musicScope = 'global'; document.getElementById('musicFile').click(); }
@@ -1479,6 +1666,7 @@ menu.querySelectorAll('button[data-act]').forEach(b => b.onclick = () => { const
   else if (a === 'tour') { closeMenu(); if (!started) enterTour(); GT.start(); }
   else if (a === 'exit') { closeMenu(); exitTour(); } });
 document.getElementById('sectionTitlesOn').addEventListener('change', (e) => { showSectionTitles = e.target.checked; spaces.forEach(updateSectionTitles); spaces.forEach(updateShowcaseHeading); saveConfig(); });
+document.getElementById('showcaseOn').addEventListener('change', (e) => { const mw = mainWing(); if (!mw) return; setShowcaseEnabled(mw, e.target.checked); saveConfig(); buildWingEditor(); });
 document.getElementById('musicOn').addEventListener('change', (e) => Music.setOn(e.target.checked));
 document.getElementById('musicVol').addEventListener('input', (e) => Music.setVol(+e.target.value));
 document.getElementById('musicFile').addEventListener('change', (e) => { if (e.target.files[0]) Music.setTrack(musicScope, e.target.files[0]); e.target.value = ''; });
@@ -1503,6 +1691,7 @@ const FLOOR_TYPES = [
   { name: 'Concrete', value: 'concrete' },
 ];
 function buildWingEditor() {
+  const mw0 = mainWing(); const showcaseOnEl = document.getElementById('showcaseOn'); if (showcaseOnEl) showcaseOnEl.checked = !!mw0 && mw0.showcaseEnabled !== false;
   const host = document.getElementById('wings'); host.innerHTML = '';
   sortedSpaces().forEach((s) => {
     const presetOpts = PRESETS.map(o => `<option value="${o.id}"${o.floor === s.floorType && o.wall === s.wallColor ? ' selected' : ''}>${o.name}</option>`).join('');
@@ -1519,16 +1708,19 @@ function buildWingEditor() {
     const showcaseWallPatternVal = s.showcaseWallPattern != null ? s.showcaseWallPattern : s.wallPattern;
     const showcaseWallOpts = WALL_COLORS.map(o => `<option value="${o.value}"${o.value === showcaseWallColorVal ? ' selected' : ''}>${o.name}</option>`).join('');
     const showcaseWallPatOpts = [['smooth', 'Smooth'], ['brick', 'Brick']].map(([v, n]) => `<option value="${v}"${showcaseWallPatternVal === v ? ' selected' : ''}>${n}</option>`).join('');
+    // Collapsed entirely (not just visually hidden) unless the showcase is turned on via the
+    // top-level menu toggle above the Rooms & halls list — nothing to configure while it's off.
     const showcaseBlock = isMainWing
-      ? `<div style="${LBL};margin-top:2px">🖼 Showcase (centre display)</div>`
-        + `<div class="musicrow" style="margin-top:0"><label class="switch"><input type="checkbox" class="wshowenabled" ${s.showcaseEnabled !== false ? 'checked' : ''}><span></span></label><span>Show the showcase display</span></div>`
-        + `<div style="${LBL};margin-top:0;color:#9a9aa6">Cycles media from</div><select class="wshowcase">${showcaseOpts}</select>`
-        + `<div class="musicrow" style="margin-top:6px"><label class="switch"><input type="checkbox" class="wshowmatch" ${showcaseWallMatched ? 'checked' : ''}><span></span></label><span>Showcase wall matches main room</span></div>`
-        + `<div class="wshowwallcustom" style="display:${showcaseWallMatched ? 'none' : 'flex'};flex-direction:column;gap:6px;margin-top:4px">`
-          + `<select class="wshowwallpat">${showcaseWallPatOpts}</select>`
-          + `<select class="wshowwall">${showcaseWallOpts}</select>`
-          + `<div class="pickrow"><input type="color" class="wshowwallpick" value="${hex(showcaseWallColorVal)}"><input class="hex wshowwallhex" value="${hex(showcaseWallColorVal)}" spellcheck="false" maxlength="7"></div>`
-        + `</div>`
+      ? (s.showcaseEnabled === false
+        ? `<div style="${LBL};margin-top:2px">🖼 Showcase (centre display)</div><div class="lbl" style="margin-top:0;color:#6a6a76">Off — turn it on above, near the top of this menu, to configure what it shows.</div>`
+        : `<div style="${LBL};margin-top:2px">🖼 Showcase (centre display)</div>`
+          + `<div style="${LBL};margin-top:0;color:#9a9aa6">Cycles media from</div><select class="wshowcase">${showcaseOpts}</select>`
+          + `<div class="musicrow" style="margin-top:6px"><label class="switch"><input type="checkbox" class="wshowmatch" ${showcaseWallMatched ? 'checked' : ''}><span></span></label><span>Showcase wall matches main room</span></div>`
+          + `<div class="wshowwallcustom" style="display:${showcaseWallMatched ? 'none' : 'flex'};flex-direction:column;gap:6px;margin-top:4px">`
+            + `<select class="wshowwallpat">${showcaseWallPatOpts}</select>`
+            + `<select class="wshowwall">${showcaseWallOpts}</select>`
+            + `<div class="pickrow"><input type="color" class="wshowwallpick" value="${hex(showcaseWallColorVal)}"><input class="hex wshowwallhex" value="${hex(showcaseWallColorVal)}" spellcheck="false" maxlength="7"></div>`
+          + `</div>`)
       : '';
     const el = document.createElement('div'); el.className = 'wing' + (s.id === currentId() ? ' current' : ''); el.dataset.id = s.id;
     el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"><span class="whereami">📍 Here</span></div>`
@@ -1543,8 +1735,7 @@ function buildWingEditor() {
         + `</div></details>`
       + `<div class="wbtns" style="margin-top:9px"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
     el.querySelector('.wname').onchange = (ev) => { s.name = ev.target.value.trim() || s.type; applyTheme(s); };
-    if (isMainWing) {
-      el.querySelector('.wshowenabled').onchange = (ev) => { setShowcaseEnabled(s, ev.target.checked); saveConfig(); };
+    if (isMainWing && s.showcaseEnabled !== false) {
       el.querySelector('.wshowcase').onchange = (ev) => { s.showcaseScope = ev.target.value; saveConfig(); cycleShowcase(); };
       el.querySelector('.wshowmatch').onchange = (ev) => {
         if (ev.target.checked) { s.showcaseWallColor = null; s.showcaseWallPattern = null; }
@@ -1693,8 +1884,13 @@ function buildFromConfig(cfg) {
   spaces.forEach(s => applyTheme(s, false));
 }
 async function boot() {
-  const share = readShare(); const recs = share ? [] : await DB.all(); let config = null; const mediaRecs = []; let hadMedia = false;
-  for (const r of recs) { if (r.frame === 'config') config = r.config; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) { mediaRecs.push(r); hadMedia = true; } }
+  const share = readShare(); const recs = share ? [] : await DB.all(); let config = null; const mediaRecs = []; showcaseIntroSeen = false;
+  for (const r of recs) { if (r.frame === 'config') config = r.config; else if (r.frame === 'showcaseIntroSeen') showcaseIntroSeen = true; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) mediaRecs.push(r); }
+  // The showcase-explainer prompt (see maybeShowShowcaseIntro) only makes sense for a genuinely
+  // brand-new museum — anyone loading a shared layout, an existing config, or existing media already
+  // has an established showcase preference (or made one already), so it's marked "seen" for them
+  // without ever popping up.
+  if (share || config || mediaRecs.length) showcaseIntroSeen = true;
   if (share) { const cfg = { spaces: share.s.map(a => {
     // Handle both old format (styleId) and new format (independent floor/wall)
     if (a.length === 9) {
@@ -1708,7 +1904,7 @@ async function boot() {
   }), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
   else {
     if (config && config.spaces?.length) buildFromConfig(config);
-    else { const preset = PRESETS[0]; const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2 }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); saveConfig(); }
+    else { const preset = PRESETS[0]; const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2, showcaseEnabled: false }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); saveConfig(); }
     for (const r of mediaRecs) { const f = frameById.get(r.frame); if (!f) continue; if (r.title) f.title = r.title; if (r.blob) applyByType(f, r.type, URL.createObjectURL(r.blob)); else drawPlate(f); }
   }
   // Spawn pulled back from the main wing's centre so the showcase reads as a small structure inside
@@ -1716,7 +1912,6 @@ async function boot() {
   // lands you at via spawnPoint, so first load and teleporting back both feel the same).
   const mw = mainWing(); if (mw) { const p = spawnPoint(mw); camera.position.set(p.x, 1.7, p.z); }
   applyFrameClamps(); buildWingEditor(); updateCount(); updateUndoBtn();
-  if (!share && !config && !hadMedia) await addSamples();
   startShowcase();
   document.getElementById('loading').classList.add('hidden');
 }
