@@ -314,6 +314,13 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
 renderer.setPixelRatio(LITE ? 0.5 : Math.min(devicePixelRatio, 2)); renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.04;
 document.getElementById('app').appendChild(renderer.domElement);
+// iOS Safari kills the tab under GPU memory pressure with no warning — it just silently reloads,
+// which lands back on the start overlay and reads as "the app crashed to the menu". A WebGL context
+// loss is the earlier, catchable signal of the same pressure: preventDefault so the browser doesn't
+// also tear down the page, stop the render loop so it isn't hammering a dead context, and reload on
+// our own terms with an explanation instead of leaving it to look like a mystery crash.
+let glContextLost = false;
+renderer.domElement.addEventListener('webglcontextlost', (e) => { e.preventDefault(); glContextLost = true; toast('Running low on graphics memory — reloading…'); setTimeout(() => location.reload(), 1200); });
 const useBloom = !LITE && !isTouch && Math.min(innerWidth, innerHeight) > 600; let composer;
 if (useBloom) { composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera)); composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.32, 0.7, 0.9)); }
 scene.add(new THREE.HemisphereLight(0xc7d2ff, 0x14140f, 0.5)); scene.add(new THREE.AmbientLight(0xffffff, 0.22));
@@ -1138,8 +1145,24 @@ const gifHost = document.createElement('div'); gifHost.style.cssText = 'position
 const gifAnims = []; let audibleVideo = null;
 function setAudibleVideo(f) { audibleVideo = f; for (const fr of frames) if (fr.video) fr.video.muted = (fr !== f); }
 function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.dead = true; const i = gifAnims.indexOf(a); if (i >= 0) gifAnims.splice(i, 1); a.img?.remove(); a.frames = null; a.tex?.dispose?.(); a.prevTex?.dispose?.(); f.gif = null; }
-function applyImage(f, url) { stopGif(f); loader.load(url, (t) => { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; if (f.video) { f.video.pause(); f.video = null; } f.mat.map = t; f.mat.needsUpdate = true; fitAspect(f, t.image.width / t.image.height); f.filled = true; f.srcURL = url; drawPlate(f); updateCount(); }); }
-function applyVideo(f, url) { stopGif(f); const v = document.createElement('video'); v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play().catch(() => {}); const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; f.mat.map = t; f.mat.needsUpdate = true; f.video = v; f.srcURL = url; v.addEventListener('loadedmetadata', () => fitAspect(f, (v.videoWidth || 16) / (v.videoHeight || 9)));
+// Wall photos come straight from an iPhone camera roll (often 3000-4300px per side) — uploading that
+// at full resolution as a GPU texture (plus mipmap chain) is the single biggest memory cost in the
+// scene, and with several rooms' worth loaded at once it's what pushes iOS Safari into killing the
+// tab under memory pressure (looks like the app "crashing back to the menu" since Safari just reloads
+// the page). Downscale to IMAGE_MAX_DIM before upload, same idea as parseGif's maxDim for GIFs — the
+// lightbox still shows the original full-res blob via f.srcURL, so nothing crisp is lost.
+const IMAGE_MAX_DIM = 2048;
+function applyImage(f, url) { stopGif(f); loader.load(url, (t) => {
+  if (f.video) { f.video.pause(); f.video = null; }
+  const img = t.image; const scale = Math.min(1, IMAGE_MAX_DIM / Math.max(img.width, img.height));
+  let tex = t;
+  if (scale < 1) { const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(img.width * scale)); cv.height = Math.max(1, Math.round(img.height * scale));
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height); tex = new THREE.CanvasTexture(cv); t.dispose(); }
+  tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  const old = f.mat.map; f.mat.map = tex; f.mat.needsUpdate = true; old?.dispose?.();
+  fitAspect(f, img.width / img.height); f.filled = true; f.srcURL = url; drawPlate(f); updateCount();
+}); }
+function applyVideo(f, url) { stopGif(f); const v = document.createElement('video'); v.src = url; v.loop = true; v.muted = true; v.playsInline = true; v.play().catch(() => {}); const t = new THREE.VideoTexture(v); t.colorSpace = THREE.SRGBColorSpace; const old = f.mat.map; f.mat.map = t; f.mat.needsUpdate = true; old?.dispose?.(); f.video = v; f.srcURL = url; v.addEventListener('loadedmetadata', () => fitAspect(f, (v.videoWidth || 16) / (v.videoHeight || 9)));
   // Some containers (.avi in particular) have no native decoder in most browsers regardless of the
   // codec inside — that fails silently as a black/frozen frame otherwise, so surface it plainly.
   v.addEventListener('error', () => { if (f.video === v) toast("This video can't be played in your browser — try converting it (e.g. to MP4)"); });
@@ -1387,10 +1410,10 @@ pcInput.addEventListener('paste', (e) => {
 async function restoreFrame(f, rec, title) {
   stopGif(f); if (f.video) { f.video.pause(); f.video = null; } if (audibleVideo === f) audibleVideo = null;
   if (rec && rec.blob) { f.title = rec.title || ''; applyByType(f, rec.type, URL.createObjectURL(rec.blob)); try { await DB.put(rec); } catch {} drawPlate(f); }
-  else { f.title = title || ''; f.mat.map = placeholderTex(); f.mat.needsUpdate = true; sizeFrame(f, 1.7, 1.2); f.filled = false; f.srcURL = null; drawPlate(f); await DB.del(f.id); }
+  else { f.title = title || ''; const old = f.mat.map; f.mat.map = placeholderTex(); f.mat.needsUpdate = true; old?.dispose?.(); sizeFrame(f, 1.7, 1.2); f.filled = false; f.srcURL = null; drawPlate(f); await DB.del(f.id); }
   updateCount();
 }
-function clearFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; f.video = null; } if (audibleVideo === f) audibleVideo = null; f.mat.map = placeholderTex(); f.mat.needsUpdate = true; sizeFrame(f, 1.7, 1.2); f.filled = false; f.title = ''; f.srcURL = null; drawPlate(f); DB.del(f.id); updateCount(); }
+function clearFrame(f) { stopGif(f); if (f.video) { f.video.pause(); f.video.src = ''; f.video = null; } if (audibleVideo === f) audibleVideo = null; const old = f.mat.map; f.mat.map = placeholderTex(); f.mat.needsUpdate = true; old?.dispose?.(); sizeFrame(f, 1.7, 1.2); f.filled = false; f.title = ''; f.srcURL = null; drawPlate(f); DB.del(f.id); updateCount(); }
 function clearFrameUndoable(f) { DB.get(f.id).then(prev => { const t = f.title; clearFrame(f); pushUndo('clear frame', () => restoreFrame(f, prev, t)); }); }
 
 /* ===== undo + delete room ===== */
@@ -2098,7 +2121,7 @@ function updateVideoCulling() { if (!frames.some(f => f.video)) return; camera.u
     if (!inView) for (const sf of scFrames) if (sf.video === v && pointInView(sf.group.position)) { inView = true; break; }
     if (inView) { if (v._culled) { v._culled = false; v.play().catch(() => {}); } }
     else if (!v.paused) { v._culled = true; v.pause(); } } }
-function animate() { requestAnimationFrame(animate); const dt = Math.min(clock.getDelta(), 0.05); camera.rotation.set(pitch, yaw, 0);
+function animate() { requestAnimationFrame(animate); if (glContextLost) return; const dt = Math.min(clock.getDelta(), 0.05); camera.rotation.set(pitch, yaw, 0);
   if (inTour && !paused && !lightboxOpen && !ctxOpen) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight'] || touchRun) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
     camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); updateWingHighlight(); if (addScope === 'room') updateCount(); } }
   if (++mapTick % 3 === 0 && (inTour || paused)) drawMap();
