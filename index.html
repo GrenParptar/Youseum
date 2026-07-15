@@ -209,7 +209,7 @@
         <div class="row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</div><div class="row"><kbd>Mouse</kbd> Look</div>
         <div class="row"><kbd>Shift</kbd> Run</div><div class="row"><kbd>L-Click</kbd> Fill / build hall</div>
         <div class="row"><kbd>R-Click</kbd> Build a wing</div><div class="row"><kbd>E</kbd> Play · <kbd>M</kbd> Mute</div>
-        <div class="row"><kbd>T</kbd> Title · <kbd>⌫</kbd> Clear</div><div class="row"><kbd>Esc</kbd> Pause &amp; free cursor</div>
+        <div class="row"><kbd>T</kbd> Title / heading (wall or doorway) · <kbd>⌫</kbd> Clear</div><div class="row"><kbd>Esc</kbd> Pause &amp; free cursor</div>
         <div class="row"><kbd>Ctrl/⌘+V</kbd> Paste a photo</div>
       </div>
       <div class="controls touchonly" style="grid-template-columns:1fr">
@@ -436,12 +436,13 @@ const doorTrimMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30, roughness:
 const frameMat = new THREE.MeshStandardMaterial({ color: 0xb98a3e, roughness: .35, metalness: .85 });
 const matteMat = new THREE.MeshStandardMaterial({ color: 0xf4f0e6, roughness: 1 });
 const shadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: .22 });
-const ceilMat = new THREE.MeshStandardMaterial({ color: 0x101018, roughness: 1 });
 
 /* ===== frame + heading helpers ===== */
 function hex(c) { return '#' + (c >>> 0).toString(16).padStart(6, '0').slice(-6); }
 // Normalise a user-typed hex ("d8cdb6", "#D8CDB6") to "#d8cdb6", or null if it isn't a valid 6-digit hex.
 function normHex(v) { v = (v || '').trim(); if (v[0] !== '#') v = '#' + v; return /^#[0-9a-fA-F]{6}$/.test(v) ? v.toLowerCase() : null; }
+// Wall/doorway heading text colour: an explicit per-space override, falling back to the space's accent.
+function headingColorFor(s) { if (!s) return 0xffcf95; return s.headingColor != null ? s.headingColor : s.accent; }
 // Wall-section heading: a large title above the media. Uses a dark outline + shadow so the
 // accent-coloured text stays legible against both bright and dark gallery walls.
 function makeHeadingTex(label, accent) { const W = 2048, Hc = 512, maxW = W - 160; const c = document.createElement('canvas'); c.width = W; c.height = Hc; const x = c.getContext('2d'); x.clearRect(0, 0, W, Hc); const txt = (label || '').toUpperCase(); x.textAlign = 'center'; x.textBaseline = 'middle'; let fs = 300; x.font = `700 ${fs}px Georgia, serif`; const tw = x.measureText(txt).width; if (tw > maxW) { fs = Math.max(70, Math.floor(fs * maxW / tw)); x.font = `700 ${fs}px Georgia, serif`; } x.lineJoin = 'round'; x.lineWidth = Math.max(10, fs * 0.1); x.strokeStyle = 'rgba(8,7,4,.72)'; x.strokeText(txt, W / 2, Hc / 2 + 6); x.shadowColor = 'rgba(0,0,0,.5)'; x.shadowBlur = 18; x.shadowOffsetY = 5; x.fillStyle = hex(accent); x.fillText(txt, W / 2, Hc / 2 + 6); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; }
@@ -495,7 +496,7 @@ function positionSectionTitle(s, side, m) {
 }
 function updateSectionTitles(s) {
   for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (!m) continue; const txt = (s.sectionTitles?.[sd] || '').trim();
-    m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, s.accent); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+    m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, headingColorFor(s)); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
 }
 // A point light of fixed intensity blows out narrow halls (surfaces sit close to it) while looking
 // right in room-sized wings. Scale intensity by floor area so a hall matches a wing's brightness
@@ -504,12 +505,15 @@ function spaceLightIntensity(s) { const area = (s.x1 - s.x0) * (s.z1 - s.z0); re
 function buildSpaceBase(s) {
   if (s.wallPattern == null) s.wallPattern = 'smooth';           // 'smooth' | 'brick'
   if (s.floorTint == null) s.floorTint = 0xffffff;               // white = untinted floor
+  if (s.ceilColor == null) s.ceilColor = 0x101018;               // per-room ceiling colour
   const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, w = s.x1 - s.x0, d = s.z1 - s.z0;
   s.cx = cx; s.cz = cz; s.wallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: 0.9 });
   const fm = floorMatFor(s.floorType);
   s.floorMat = new THREE.MeshStandardMaterial({ map: floorTexFor(s.floorType, s), color: (s.floorTint != null ? s.floorTint : 0xffffff), roughness: fm.rough, metalness: fm.metal });
   const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), s.floorMat); fl.rotation.x = -Math.PI / 2; fl.position.set(cx, 0, cz); fl.userData.floorId = s.id; scene.add(fl); s.floor = fl;
-  s.ceil = box(cx, H, cz, w, 0.3, d, ceilMat, false);
+  // Per-space ceiling material (NOT the shared global ceilMat) so each room's ceiling colour is independent.
+  s.ceilMat = new THREE.MeshStandardMaterial({ color: s.ceilColor, roughness: 1 });
+  s.ceil = box(cx, H, cz, w, 0.3, d, s.ceilMat, false);
   const long = Math.max(w, d); s.strip = buildStrip(s, cx, cz, w, d, long);
   s.point = new THREE.PointLight(s.lightColor, spaceLightIntensity(s), 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
   s.spots = []; if (!LITE && s.type === 'room') for (const a of [['z', -1], ['z', 1], ['x', -1], ['x', 1]]) { const sp = new THREE.SpotLight(s.lightColor, 9, 15, 0.7, 0.6, 1.2); sp.position.set(cx + (a[0] === 'x' ? a[1] * 2.2 : 0), H - 0.4, cz + (a[0] === 'z' ? a[1] * 2.2 : 0)); sp.target.position.set(cx + (a[0] === 'x' ? a[1] * w / 2 : 0), 1.7, cz + (a[0] === 'z' ? a[1] * d / 2 : 0)); scene.add(sp, sp.target); s.spots.push(sp); }
@@ -552,7 +556,7 @@ function updateShowcaseHeading(s) {
   // color, floor, preset) routed through applyTheme() re-shows the showcase's wall headers even
   // while the showcase itself is toggled off.
   const on = s.showcaseEnabled !== false;
-  for (const sd of SIDES) { const txt = showcaseHeadingText(s, sd); const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, s.accent); m.material.needsUpdate = true; m.visible = on && showSectionTitles && !!txt; }
+  for (const sd of SIDES) { const txt = showcaseHeadingText(s, sd); const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, headingColorFor(s)); m.material.needsUpdate = true; m.visible = on && showSectionTitles && !!txt; }
 }
 function positionShowcaseHeading(s, side, m) {
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2, x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
@@ -782,8 +786,47 @@ function buildDoorPortal(c) { const a = spaces.get(c.a); if (!a) return []; cons
   else { const xc = (side === 'E' ? a.x1 : a.x0) + childDir * (T / 2);
     ms.push(box(xc, DOORH / 2, lo, dep, DOORH, jw, doorTrimMat, false), box(xc, DOORH / 2, hi, dep, DOORH, jw, doorTrimMat, false));
     ms.push(box(xc, DOORH + hh / 2, (lo + hi) / 2, dep, hh, (hi - lo) + 2 * jw, doorTrimMat, false)); }
+  // Tag the jamb/head trim so USE-ing it (looking at the door jamb) opens the doorway-heading menu,
+  // and fold them into wallMeshes so they're raycast-hittable and cleaned up by the same removeBox()
+  // calls that already tear down a connection's doorMeshes.
+  for (const m of ms) { m.userData.doorConn = c; wallMeshes.push(m); }
   return ms;
 }
+// The editable heading painted in the header band directly above a doorway (as opposed to a wall's
+// own side-wide heading) — one mesh per side of the opening so it reads correctly walking through
+// from either room. Skipped for a seamless hall-to-hall extension, which has no header band at all.
+function positionDoorHeading(s, side, lo, hi, m) {
+  const mid = (lo + hi) / 2, len = hi - lo, h = Math.min(0.85, Math.max(0.4, (len - 0.3) / 3)); m.scale.set(h * 3, h, 1);
+  const off = T / 2 + 0.06, y = (DOORH + HEADH - 0.05 + H) / 2;
+  if (side === 'N') { m.position.set(mid, y, s.z0 + off); m.rotation.y = 0; }
+  else if (side === 'S') { m.position.set(mid, y, s.z1 - off); m.rotation.y = Math.PI; }
+  else if (side === 'E') { m.position.set(s.x1 - off, y, mid); m.rotation.y = -Math.PI / 2; }
+  else { m.position.set(s.x0 + off, y, mid); m.rotation.y = Math.PI / 2; }
+}
+function buildDoorHeadingMeshes(c) {
+  if (isSeamlessConn(c)) return [];
+  const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); const ms = [];
+  const mk = (sp, side) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', 0xffffff), transparent: true, depthWrite: false })); positionDoorHeading(sp, side, c.lo, c.hi, m); scene.add(m); ms.push(m); };
+  if (a) mk(a, c.side);
+  if (b) mk(b, OPP[c.side]);
+  c.headingMeshes = ms;
+  updateDoorHeading(c);
+  return ms;
+}
+function doorHeadingText(c) { return c ? (c.heading || '').trim() : ''; }
+function updateDoorHeading(c) {
+  if (!c || !c.headingMeshes) return;
+  const txt = doorHeadingText(c);
+  const color = c.headingColor != null ? c.headingColor : headingColorFor(spaces.get(c.a));
+  for (const m of c.headingMeshes) { m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, color); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+}
+function setDoorHeading(c, text) {
+  if (!c) return; const prev = c.heading || '', next = text.trim(); if (prev === next) return;
+  c.heading = next; if (next && !showSectionTitles) { showSectionTitles = true; const cb = document.getElementById('sectionTitlesOn'); if (cb) cb.checked = true; spaces.forEach(updateSectionTitles); spaces.forEach(updateShowcaseHeading); connections.forEach(updateDoorHeading); } else updateDoorHeading(c);
+  saveConfig();
+  pushUndo('doorway heading', () => { c.heading = prev; updateDoorHeading(c); saveConfig(); });
+}
+function titleDoorway(c) { if (!c) return; if (document.pointerLockElement === canvas) document.exitPointerLock(); setTimeout(() => { const t = prompt('Heading over this doorway (leave blank to remove):', doorHeadingText(c)); if (t !== null) setDoorHeading(c, t); if (!isTouch && started) canvas.requestPointerLock?.(); }, 60); }
 // A hall extended straight off the end of another hall — the opening spans the full shared wall —
 // reads as one long corridor, so it gets no header/trim (just an open span).
 function isSeamlessConn(c) { const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); if (!a || !b || a.type !== 'hall' || b.type !== 'hall') return false; const full = (c.side === 'N' || c.side === 'S') ? (a.x1 - a.x0) : (a.z1 - a.z0); return Math.abs((c.hi - c.lo) - full) < 0.06; }
@@ -792,7 +835,7 @@ function isSeamlessConn(c) { const a = spaces.get(c.a), b = spaces.get(spaceOnOt
 function buildConnDoors(c) { if (isSeamlessConn(c)) return []; const a = spaces.get(c.a), b = spaces.get(spaceOnOtherSide(c)); let ms = [];
   if (a) ms = ms.concat(buildDoorway(a, c.side, c.lo, c.hi));
   if (b) ms = ms.concat(buildDoorway(b, OPP[c.side], c.lo, c.hi));
-  return ms.concat(buildDoorPortal(c)); }
+  return ms.concat(buildDoorPortal(c), buildDoorHeadingMeshes(c)); }
 function applyTheme(s, save = true) {
   const fm = floorMatFor(s.floorType);
   s.wallMat.color.set(s.wallColor);
@@ -809,8 +852,12 @@ function applyTheme(s, save = true) {
   s.point.intensity = spaceLightIntensity(s);
   s.spots.forEach(sp => sp.color.set(s.lightColor));
   s.stars.visible = s.floorType === 'dark';
+  if (s.ceilMat) { s.ceilMat.color.set(s.ceilColor != null ? s.ceilColor : 0x101018); s.ceilMat.needsUpdate = true; }
   updateSectionTitles(s);
   updateShowcaseTheme(s); updateShowcaseHeading(s);
+  // A doorway heading's colour falls back to the OWNING space's headingColor/accent, so it must be
+  // refreshed whenever that space's theme changes too — not just when the doorway itself is edited.
+  connections.forEach(c => { if (c.a === s.id || spaceOnOtherSide(c) === s.id) updateDoorHeading(c); });
   if (s.id === lastId) document.getElementById('roomlabel').textContent = s.name;
   if (save) saveConfig();
 }
@@ -1270,10 +1317,10 @@ async function deleteSpace(id, opts = {}) {
   if (opts.confirm && !confirm('Delete "' + s.name + '" and everything in it?')) return;
   GT.stop();
   let snap = null;
-  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings ? { ...s.showcaseHeadings } : null, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes ? { ...s.showcaseWallScopes } : null }, conns: [], media }; }
+  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, ceilColor: s.ceilColor, headingColor: s.headingColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings ? { ...s.showcaseHeadings } : null, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes ? { ...s.showcaseWallScopes } : null }, conns: [], media }; }
   const involved = connections.filter(c => c.a === id || spaceOnOtherSide(c) === id);
   const reseal = involved.map(c => ({ otherId: (c.a === id) ? spaceOnOtherSide(c) : c.a, otherSide: (c.a === id) ? OPP[c.side] : c.side, lo: c.lo, hi: c.hi, doorMeshes: c.doorMeshes }));
-  if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }));
+  if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor }));
   for (const c of involved) { const i = connections.indexOf(c); if (i >= 0) connections.splice(i, 1); }
   disposeSpace(s); spaces.delete(id);
   for (const r of reseal) { (r.doorMeshes || []).forEach(removeBox); const o = spaces.get(r.otherId); if (o) { const arr = o.sides[r.otherSide]; const idx = arr.findIndex(p => Math.abs(p[0] - r.lo) < 0.05 && Math.abs(p[1] - r.hi) < 0.05); if (idx >= 0) arr.splice(idx, 1); await rebuildWithCorners(o, r.otherSide); } }
@@ -1283,7 +1330,7 @@ async function deleteSpace(id, opts = {}) {
 }
 async function rebuildSpace(snap) {
   const s = { ...snap.s }; spaces.set(s.id, s); buildSpaceBase(s);
-  for (const c of snap.conns) { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const A = spaces.get(c.a); if (A) A.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb && spaces.get(nb)) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); addInsetSide(spaces.get(nb), OPP[c.side]); } }
+  for (const c of snap.conns) { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor }); const A = spaces.get(c.a); if (A) A.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb && spaces.get(nb)) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); addInsetSide(spaces.get(nb), OPP[c.side]); } }
   for (const sd of SIDES) buildWallSide(s, sd);
   const done = new Set();
   for (const c of snap.conns) { const nbId = (c.a === s.id) ? spaceOnOtherSide(c) : c.a; const nbSide = (c.a === s.id) ? OPP[c.side] : c.side; const key = nbId + nbSide; if (spaces.get(nbId) && !done.has(key)) { await rebuildWithCorners(spaces.get(nbId), nbSide); done.add(key); } }
@@ -1321,7 +1368,12 @@ function resolveShowcaseIntro(on) {
 }
 function spaceFramesList(s) { return SIDES.flatMap(sd => s.frames[sd]); }
 function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentId()) ? spaceFramesList(spaces.get(currentId())) : []) : frames; return pool.find(f => !f.filled); }
-const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi })), nextId, showSectionTitles } });
+// Custom room themes: reusable bundles of floor/wall/ceiling saved from a room's current look,
+// selectable from any room's "Custom themes" dropdown (or applied museum-wide via that panel's
+// "Apply to whole museum" toggle). Persisted separately from the layout config.
+let customThemes = [];
+const saveCustomThemes = () => DB.put({ frame: 'customThemes', list: customThemes });
+const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, ceilColor: s.ceilColor, headingColor: s.headingColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor })), nextId, showSectionTitles } });
 
 /* ===== showcase (main wing's centre display) ===== */
 function mainWing() { for (const s of spaces.values()) if (s.type === 'room') return s; return null; }
@@ -1377,7 +1429,7 @@ function resume() { if (!isTouch) canvas.requestPointerLock?.(); }
 function exitTour() { GT.stop(); exiting = true; inTour = false; paused = false; document.body.classList.remove('tour', 'paused'); if (document.pointerLockElement) document.exitPointerLock(); overlay.classList.remove('hidden'); }
 document.addEventListener('pointerlockchange', () => { if (document.pointerLockElement === canvas) { inTour = true; paused = false; document.body.classList.add('tour'); document.body.classList.remove('paused'); overlay.classList.add('hidden'); } else { inTour = false; if (exiting) { exiting = false; document.body.classList.remove('tour', 'paused'); } else if (started) { paused = true; document.body.classList.add('tour', 'paused'); } } });
 document.addEventListener('mousemove', (e) => { if (document.pointerLockElement !== canvas) return; if (GT.active) GT.stop(); yaw -= e.movementX * 0.0022; pitch = Math.max(-1.45, Math.min(1.45, pitch - e.movementY * 0.0022)); });
-addEventListener('keydown', (e) => { keys[e.code] = true; if (ctxOpen) { if (e.code === 'Escape') { e.preventDefault(); closeCtxMenu(); } return; } if (lightboxOpen) { if (e.code === 'Escape') { e.preventDefault(); closeLightbox(); } return; } if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) { e.preventDefault(); doUndo(); return; } if (e.code === 'Escape') return; if (!inTour) return; if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code) && GT.active) GT.stop(); if (e.code === 'KeyE') toggleVideo(); if (e.code === 'KeyM') toggleMute(); if (e.code === 'KeyT') { if (lookingAt) titleFrame(); else if (lookingWall) titleWall(); } if (e.code === 'Backspace') { if (lookingAt) { clearFrameUndoable(lookingAt); toast('Frame cleared'); } else if (lookingWall && wallHeadingText(lookingWall).trim()) { setWallHeading(lookingWall, ''); toast('Heading removed'); } } });
+addEventListener('keydown', (e) => { keys[e.code] = true; if (ctxOpen) { if (e.code === 'Escape') { e.preventDefault(); closeCtxMenu(); } return; } if (lightboxOpen) { if (e.code === 'Escape') { e.preventDefault(); closeLightbox(); } return; } if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyZ' || e.key === 'z' || e.key === 'Z')) { e.preventDefault(); doUndo(); return; } if (e.code === 'Escape') return; if (!inTour) return; if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code) && GT.active) GT.stop(); if (e.code === 'KeyE') toggleVideo(); if (e.code === 'KeyM') toggleMute(); if (e.code === 'KeyT') { if (lookingAt) titleFrame(); else if (lookingDoorway) titleDoorway(lookingDoorway); else if (lookingWall) titleWall(); } if (e.code === 'Backspace') { if (lookingAt) { clearFrameUndoable(lookingAt); toast('Frame cleared'); } else if (lookingDoorway && doorHeadingText(lookingDoorway)) { setDoorHeading(lookingDoorway, ''); toast('Heading removed'); } else if (lookingWall && wallHeadingText(lookingWall).trim()) { setWallHeading(lookingWall, ''); toast('Heading removed'); } } });
 addEventListener('keyup', (e) => keys[e.code] = false);
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('mousedown', (e) => { if (document.pointerLockElement === canvas) { if (e.button === 2) { if (lookingAt) buildAtFrame('wing', lookingAt); else buildAtWall('wing'); } else interact(); } else if (paused && !lightboxOpen && !ctxOpen) resume(); });
@@ -1408,7 +1460,7 @@ const runBtnEl = document.getElementById('runBtn');
 hudPress(runBtnEl, () => { touchRun = !touchRun; runBtnEl.classList.toggle('on', touchRun); });
 
 /* ===== look + interact ===== */
-const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null, lookingFloor = null, lookingShowcase = null;
+const raycaster = new THREE.Raycaster(); let lookingAt = null, lookingWall = null, lookingFloor = null, lookingShowcase = null, lookingDoorway = null;
 const promptEl = document.getElementById('prompt'), crossEl = document.getElementById('crosshair');
 function updateLook() {
   raycaster.setFromCamera({ x: 0, y: 0 }, camera); const arts = frames.map(f => f.art);
@@ -1417,20 +1469,22 @@ function updateLook() {
   let scArts = [];
   try { const mw = mainWing(); if (mw?.showcaseFrames && mw.showcaseEnabled !== false) scArts = Object.values(mw.showcaseFrames).map(f => f.art); } catch (e) {}
   const flrs = []; spaces.forEach(s => { if (s.floor) flrs.push(s.floor); }); const objs = [...arts, ...scArts, ...wallMeshes, ...flrs];
-  const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null; lookingFloor = null; lookingShowcase = null;
+  const hit = raycaster.intersectObjects(objs, false)[0]; lookingAt = null; lookingWall = null; lookingFloor = null; lookingShowcase = null; lookingDoorway = null;
   if (hit) { const ai = arts.indexOf(hit.object);
     if (ai >= 0 && hit.distance < 6.5) lookingAt = frames[ai];
     else if (hit.object.userData.showcaseSide && hit.distance < 6.5) lookingShowcase = hit.object.userData.showcaseSide;
+    else if (hit.object.userData.doorConn && hit.distance < 5.5) lookingDoorway = hit.object.userData.doorConn;
     else if (hit.object.userData.add && hit.distance < 5.5) { const ad = hit.object.userData.add; const u = (ad.side === 'N' || ad.side === 'S') ? hit.point.x : hit.point.z; lookingWall = { id: ad.id, side: ad.side, u }; }
     else if (hit.object.userData.floorId && hit.distance < 8) lookingFloor = { id: hit.object.userData.floorId }; }
   if (inTour && !GT.active && lookingAt) { crossEl.classList.add('active'); if (!lookingAt.filled) showPrompt('<b>' + (isTouch ? 'USE' : 'Click') + '</b> to hang a photo, video or GIF'); else showPrompt(isTouch ? '<b>USE</b> to view' : '<b>Click</b> to view · <b>R-click</b> build a wing here · <b>⌫</b> clear'); }
   else if (inTour && !GT.active && lookingShowcase) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> for showcase options (wall header, what it shows)' : '<b>Click</b> for showcase options (wall header, what it shows)'); }
+  else if (inTour && !GT.active && lookingDoorway) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> for a heading over this doorway' : '<b>Click</b> for a heading over this doorway'); }
   else if (inTour && !GT.active && lookingWall) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> for wall options' : '<b>Click</b> for wall options (hall, wing, extend, heading)'); }
   else if (inTour && !GT.active && lookingFloor) { crossEl.classList.add('active'); showPrompt(isTouch ? '<b>USE</b> to change the floor' : '<b>Click</b> to change the floor design'); }
   else { crossEl.classList.remove('active'); promptEl.classList.remove('show'); }
 }
 const showPrompt = (h) => { promptEl.innerHTML = h; promptEl.classList.add('show'); };
-function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) openCtxMenu('emptyframe', { frame: f }); else openLightbox(f); } else if (lookingShowcase) openCtxMenu('showcase', { side: lookingShowcase }); else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
+function interact() { if (ctxOpen) return; if (lookingAt) { const f = lookingAt; if (!f.filled) openCtxMenu('emptyframe', { frame: f }); else openLightbox(f); } else if (lookingShowcase) openCtxMenu('showcase', { side: lookingShowcase }); else if (lookingDoorway) openCtxMenu('doorway', { conn: lookingDoorway }); else if (lookingWall) openCtxMenu('wall', lookingWall); else if (lookingFloor) openCtxMenu('floor', lookingFloor); }
 // Opening a native file picker is a more privileged action than the plain DOM changes interact()
 // otherwise makes (opening the lightbox, a wall/floor/showcase menu) — those are all fine to fire
 // straight from the USE button's touchstart handler (see hudPress below), but iOS Safari can
@@ -1551,6 +1605,21 @@ function openCtxMenu(kind, target) {
     if (document.pointerLockElement) document.exitPointerLock();
     return;
   }
+  if (kind === 'doorway') {
+    const c = target.conn; if (!c) return;
+    ctxTarget = { kind: 'doorway', conn: c };
+    const optsEl = document.getElementById('ctxopts'); optsEl.innerHTML = '';
+    document.getElementById('ctxtitle').textContent = 'Doorway heading';
+    const has = doorHeadingText(c);
+    ctxAddBtn(optsEl, has ? '✎ Edit heading' : '＋ Add heading over this doorway', 'accent', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleDoorway(c); });
+    if (has) ctxAddBtn(optsEl, '⌫ Remove heading', 'warn', () => { setDoorHeading(c, ''); closeCtxMenu(); toast('Heading removed'); });
+    const fallback = spaces.get(c.a);
+    ctxAddColorPicker(optsEl, 'Heading colour', c.headingColor != null ? c.headingColor : headingColorFor(fallback), (v, commit) => { c.headingColor = v; updateDoorHeading(c); if (commit) saveConfig(); });
+    if (c.headingColor != null) ctxAddBtn(optsEl, '↺ Match room colour', '', () => { c.headingColor = null; updateDoorHeading(c); saveConfig(); closeCtxMenu(); toast('Doorway heading now matches the room'); });
+    ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
+    if (document.pointerLockElement) document.exitPointerLock();
+    return;
+  }
   const s = spaces.get(target.id); if (!s) return;
   ctxTarget = { kind, id: target.id, side: target.side, u: target.u };
   const optsEl = document.getElementById('ctxopts'); optsEl.innerHTML = '';
@@ -1563,11 +1632,20 @@ function openCtxMenu(kind, target) {
     ctxAddBtn(optsEl, has ? '✎ Edit wall heading' : '＋ Add wall heading', '', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleWall({ id: target.id, side: target.side, u: target.u }); });
     if (has) ctxAddBtn(optsEl, '⌫ Remove heading', 'warn', () => { setWallHeading({ id: target.id, side: target.side }, ''); closeCtxMenu(); toast('Heading removed'); });
   } else {
-    ctxAddSwatches(optsEl, 'Floor design', FLOOR_TYPES.map(t => ({ label: t.name, value: t.value, on: t.value === s.floorType })), true, (t) => { s.floorType = t.value; applyTheme(s); buildWingEditor(); });
-    ctxAddColorPicker(optsEl, 'Floor tint (custom)', s.floorTint != null ? s.floorTint : 0xffffff, (v, commit) => { s.floorTint = v; applyTheme(s, commit); if (commit) buildWingEditor(); });
-    ctxAddSwatches(optsEl, 'Wall pattern', [{ label: 'Smooth', value: 'smooth' }, { label: 'Brick', value: 'brick' }].map(p => ({ label: p.label, value: p.value, on: p.value === s.wallPattern })), true, (p) => { s.wallPattern = p.value; applyTheme(s); buildWingEditor(); });
-    ctxAddSwatches(optsEl, 'Wall colour', WALL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === s.wallColor })), false, (c) => { s.wallColor = c.value; applyTheme(s); buildWingEditor(); });
-    ctxAddColorPicker(optsEl, 'Wall colour (custom)', s.wallColor, (v, commit) => { s.wallColor = v; applyTheme(s, commit); if (commit) buildWingEditor(); });
+    let applyAll = false;
+    const scopeRow = document.createElement('div'); scopeRow.className = 'musicrow'; scopeRow.style.margin = '0 0 8px';
+    scopeRow.innerHTML = '<label class="switch"><input type="checkbox"><span></span></label><span>Apply to whole museum</span>';
+    scopeRow.querySelector('input').onchange = (e) => { applyAll = e.target.checked; };
+    optsEl.appendChild(scopeRow);
+    const applyMutate = (mutate, commit = true) => { if (applyAll) { spaces.forEach(mutate); spaces.forEach(sp => applyTheme(sp, false)); if (commit) saveConfig(); } else { mutate(s); applyTheme(s, commit); } };
+    ctxAddSwatches(optsEl, 'Floor design', FLOOR_TYPES.map(t => ({ label: t.name, value: t.value, on: t.value === s.floorType })), true, (t) => { applyMutate(sp => sp.floorType = t.value); buildWingEditor(); });
+    ctxAddColorPicker(optsEl, 'Floor tint (custom)', s.floorTint != null ? s.floorTint : 0xffffff, (v, commit) => { applyMutate(sp => sp.floorTint = v, commit); if (commit) buildWingEditor(); });
+    ctxAddSwatches(optsEl, 'Wall pattern', [{ label: 'Smooth', value: 'smooth' }, { label: 'Brick', value: 'brick' }].map(p => ({ label: p.label, value: p.value, on: p.value === s.wallPattern })), true, (p) => { applyMutate(sp => sp.wallPattern = p.value); buildWingEditor(); });
+    ctxAddSwatches(optsEl, 'Wall colour', WALL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === s.wallColor })), false, (c) => { applyMutate(sp => sp.wallColor = c.value); buildWingEditor(); });
+    ctxAddColorPicker(optsEl, 'Wall colour (custom)', s.wallColor, (v, commit) => { applyMutate(sp => sp.wallColor = v, commit); if (commit) buildWingEditor(); });
+    ctxAddSwatches(optsEl, 'Ceiling colour', CEIL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === (s.ceilColor != null ? s.ceilColor : 0x101018) })), false, (c) => { applyMutate(sp => sp.ceilColor = c.value); buildWingEditor(); });
+    ctxAddColorPicker(optsEl, 'Ceiling colour (custom)', s.ceilColor != null ? s.ceilColor : 0x101018, (v, commit) => { applyMutate(sp => sp.ceilColor = v, commit); if (commit) buildWingEditor(); });
+    ctxAddColorPicker(optsEl, 'Wall & doorway header colour', headingColorFor(s), (v, commit) => { applyMutate(sp => sp.headingColor = v, commit); if (commit) buildWingEditor(); });
   }
   ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
   if (document.pointerLockElement) document.exitPointerLock();
@@ -1628,7 +1706,7 @@ document.getElementById('importFile').addEventListener('change', async (e) => {
   location.hash = ''; setTimeout(() => location.reload(), 400);
 });
 async function saveGallery() { for (const f of frames) if (f.filled) { const rec = await DB.get(f.id); if (rec) { rec.title = f.title; await DB.put(rec); } } await saveConfig(); toast('Saved to this browser'); }
-function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint, s.showcaseScope, s.showcaseHeadings, s.showcaseWallColor, s.showcaseWallPattern, s.showcaseWallScopes]), c: connections.map(c => [c.a, c.side, c.lo, c.hi]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
+function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint, s.showcaseScope, s.showcaseHeadings, s.showcaseWallColor, s.showcaseWallPattern, s.showcaseWallScopes, s.ceilColor, s.headingColor]), c: connections.map(c => [c.a, c.side, c.lo, c.hi, c.heading, c.headingColor]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
 function readShare() { const m = location.hash.match(/m=([^&]+)/); if (!m) return null; try { return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); } catch { return null; } }
 
 /* ===== music ===== */
@@ -1652,6 +1730,10 @@ const overlay = document.getElementById('overlay'), menu = document.getElementBy
 const openMenu = () => menu.classList.add('open'); const closeMenu = () => menu.classList.remove('open');
 document.getElementById('menuBtn').onclick = () => menu.classList.toggle('open');
 document.getElementById('menuClose').onclick = closeMenu;
+// On touch, tapping anywhere outside the open menu (the dimmed world behind it) dismisses it, same as
+// tapping the ✕ — a common mobile drawer convention. Gated to touch so desktop clicking through the
+// canvas to re-lock the pointer behaves exactly as before.
+if (isTouch) document.addEventListener('touchstart', (e) => { if (!menu.classList.contains('open')) return; if (menu.contains(e.target) || e.target === document.getElementById('menuBtn')) return; closeMenu(); }, { passive: true });
 document.getElementById('start').onclick = enterTour;
 document.getElementById('startAdd').onclick = () => { addTarget = null; fileInput.click(); };
 document.querySelectorAll('#scopeSeg button').forEach(b => b.onclick = () => { addScope = b.dataset.scope; document.querySelectorAll('#scopeSeg button').forEach(x => x.classList.toggle('on', x === b)); updateCount(); });
@@ -1665,7 +1747,7 @@ menu.querySelectorAll('button[data-act]').forEach(b => b.onclick = () => { const
   else if (a === 'resetall') { if (confirm('Completely reset the museum? This wipes ALL media, rooms, music and settings, and cannot be undone.')) DB.all().then(rs => Promise.all(rs.map(r => DB.del(r.frame))).then(() => { location.hash = ''; location.reload(); })); }
   else if (a === 'tour') { closeMenu(); if (!started) enterTour(); GT.start(); }
   else if (a === 'exit') { closeMenu(); exitTour(); } });
-document.getElementById('sectionTitlesOn').addEventListener('change', (e) => { showSectionTitles = e.target.checked; spaces.forEach(updateSectionTitles); spaces.forEach(updateShowcaseHeading); saveConfig(); });
+document.getElementById('sectionTitlesOn').addEventListener('change', (e) => { showSectionTitles = e.target.checked; spaces.forEach(updateSectionTitles); spaces.forEach(updateShowcaseHeading); connections.forEach(updateDoorHeading); saveConfig(); });
 document.getElementById('showcaseOn').addEventListener('change', (e) => { const mw = mainWing(); if (!mw) return; setShowcaseEnabled(mw, e.target.checked); saveConfig(); buildWingEditor(); });
 document.getElementById('musicOn').addEventListener('change', (e) => Music.setOn(e.target.checked));
 document.getElementById('musicVol').addEventListener('input', (e) => Music.setVol(+e.target.value));
@@ -1689,6 +1771,13 @@ const FLOOR_TYPES = [
   { name: 'Tile', value: 'tile' },
   { name: 'Dark', value: 'dark' },
   { name: 'Concrete', value: 'concrete' },
+];
+const CEIL_COLORS = [
+  { name: 'Charcoal', value: 0x101018 },
+  { name: 'Warm White', value: 0xf4f0e6 },
+  { name: 'Soft Grey', value: 0xd7d7de },
+  { name: 'Deep Navy', value: 0x161c2c },
+  { name: 'Black', value: 0x050506 },
 ];
 function buildWingEditor() {
   const mw0 = mainWing(); const showcaseOnEl = document.getElementById('showcaseOn'); if (showcaseOnEl) showcaseOnEl.checked = !!mw0 && mw0.showcaseEnabled !== false;
@@ -1722,18 +1811,32 @@ function buildWingEditor() {
             + `<div class="pickrow"><input type="color" class="wshowwallpick" value="${hex(showcaseWallColorVal)}"><input class="hex wshowwallhex" value="${hex(showcaseWallColorVal)}" spellcheck="false" maxlength="7"></div>`
           + `</div>`)
       : '';
+    const ceilColorVal = s.ceilColor != null ? s.ceilColor : 0x101018;
+    const ceilOpts = CEIL_COLORS.map(o => `<option value="${o.value}"${o.value === ceilColorVal ? ' selected' : ''}>${o.name}</option>`).join('');
+    const headColorVal = headingColorFor(s);
+    const customThemeOpts = customThemes.length ? `<option value="">Apply a saved theme…</option>${customThemes.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}` : '';
     const el = document.createElement('div'); el.className = 'wing' + (s.id === currentId() ? ' current' : ''); el.dataset.id = s.id;
     el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"><span class="whereami">📍 Here</span></div>`
       + showcaseBlock
+      + `<div class="musicrow" style="margin-top:6px"><label class="switch"><input type="checkbox" class="wapplyall"><span></span></label><span>Apply changes below to whole museum</span></div>`
       + `<div style="${LBL};margin-top:2px">Preset themes</div><select class="wpreset">${presetOpts}</select>`
-      + `<details class="custpick appearance" style="margin-top:6px"><summary><span class="chip wallchip" title="Wall colour" style="background:${hex(s.wallColor)}"></span><span class="chip floorchip" title="Floor tint" style="background:${hex(s.floorTint)}"></span>Wall &amp; floor<span class="arrow">▾</span></summary><div class="dropbody">`
+      + `<details class="custpick appearance" style="margin-top:6px"><summary><span class="chip wallchip" title="Wall colour" style="background:${hex(s.wallColor)}"></span><span class="chip floorchip" title="Floor tint" style="background:${hex(s.floorTint)}"></span><span class="chip ceilchip" title="Ceiling colour" style="background:${hex(ceilColorVal)}"></span>Wall, floor &amp; ceiling<span class="arrow">▾</span></summary><div class="dropbody">`
         + `<div style="${LBL};margin-top:0">Floor design</div><select class="wfloor">${floorOpts}</select>`
         + `<div style="${LBL}">Floor tint (custom)</div><div class="pickrow"><input type="color" class="wfloorpick" value="${hex(s.floorTint)}"><input class="hex wfloorhex" value="${hex(s.floorTint)}" spellcheck="false" maxlength="7"></div>`
         + `<div style="${LBL}">Wall pattern</div><select class="wpat">${patOpts}</select>`
         + `<div style="${LBL}">Wall color (preset)</div><select class="wwall">${wallOpts}</select>`
         + `<div style="${LBL}">Wall color (custom)</div><div class="pickrow"><input type="color" class="wwallpick" value="${hex(s.wallColor)}"><input class="hex wwallhex" value="${hex(s.wallColor)}" spellcheck="false" maxlength="7"></div>`
+        + `<div style="${LBL}">Ceiling colour (preset)</div><select class="wceil">${ceilOpts}</select>`
+        + `<div style="${LBL}">Ceiling colour (custom)</div><div class="pickrow"><input type="color" class="wceilpick" value="${hex(ceilColorVal)}"><input class="hex wceilhex" value="${hex(ceilColorVal)}" spellcheck="false" maxlength="7"></div>`
+        + `<div style="${LBL}">Wall &amp; doorway header colour</div><div class="pickrow"><input type="color" class="wheadpick" value="${hex(headColorVal)}"><input class="hex wheadhex" value="${hex(headColorVal)}" spellcheck="false" maxlength="7"></div>`
         + `</div></details>`
+      + `<div style="${LBL};margin-top:6px">Custom themes</div>`
+      + (customThemes.length ? `<select class="wcustomtheme">${customThemeOpts}</select>` : `<div class="lbl" style="margin-top:0;color:#6a6a76">Save this room's floor, wall &amp; ceiling as a reusable theme.</div>`)
+      + `<div class="wbtns" style="margin-top:6px"><button data-savetheme>💾 Save this room's theme</button>${customThemes.length ? '<button data-deltheme class="del">🗑 Delete selected</button>' : ''}</div>`
       + `<div class="wbtns" style="margin-top:9px"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
+    let applyAll = false;
+    el.querySelector('.wapplyall').onchange = (ev) => { applyAll = ev.target.checked; };
+    const applyMutate = (mutate, commit = true) => { if (applyAll) { spaces.forEach(mutate); spaces.forEach(sp => applyTheme(sp, false)); if (commit) saveConfig(); } else { mutate(s); applyTheme(s, commit); } };
     el.querySelector('.wname').onchange = (ev) => { s.name = ev.target.value.trim() || s.type; applyTheme(s); };
     if (isMainWing && s.showcaseEnabled !== false) {
       el.querySelector('.wshowcase').onchange = (ev) => { s.showcaseScope = ev.target.value; saveConfig(); cycleShowcase(); };
@@ -1750,21 +1853,48 @@ function buildWingEditor() {
       swHex.onchange = () => { const v = normHex(swHex.value); if (v) setShowcaseWall(parseInt(v.slice(1), 16), true); else swHex.value = hex(s.showcaseWallColor ?? s.wallColor); };
       el.querySelector('.wshowwallpat').onchange = (ev) => { s.showcaseWallPattern = ev.target.value; updateShowcaseTheme(s); saveConfig(); };
     }
-    el.querySelector('.wpreset').onchange = (ev) => { const p = PRESETS.find(x => x.id === ev.target.value); if (p) { s.floorType = p.floor; s.wallColor = p.wall; s.wallRoughness = p.rough; s.wallMetalness = p.metal; s.lightColor = p.light; s.lightIntensity = p.li; s.accent = p.accent; applyTheme(s); buildWingEditor(); } };
-    el.querySelector('.wfloor').onchange = (ev) => { s.floorType = ev.target.value; applyTheme(s); };
-    el.querySelector('.wpat').onchange = (ev) => { s.wallPattern = ev.target.value; applyTheme(s); };
-    const wallchip = el.querySelector('.wallchip'), floorchip = el.querySelector('.floorchip');
+    el.querySelector('.wpreset').onchange = (ev) => { const p = PRESETS.find(x => x.id === ev.target.value); if (p) { applyMutate(sp => { sp.floorType = p.floor; sp.wallColor = p.wall; sp.wallRoughness = p.rough; sp.wallMetalness = p.metal; sp.lightColor = p.light; sp.lightIntensity = p.li; sp.accent = p.accent; }); buildWingEditor(); } };
+    el.querySelector('.wfloor').onchange = (ev) => { applyMutate(sp => sp.floorType = ev.target.value); buildWingEditor(); };
+    el.querySelector('.wpat').onchange = (ev) => { applyMutate(sp => sp.wallPattern = ev.target.value); buildWingEditor(); };
+    const wallchip = el.querySelector('.wallchip'), floorchip = el.querySelector('.floorchip'), ceilchip = el.querySelector('.ceilchip');
     const wp = el.querySelector('.wwallpick'), wh = el.querySelector('.wwallhex'), wsel = el.querySelector('.wwall');
-    const setWall = (v, commit) => { s.wallColor = v; wp.value = hex(v); wh.value = hex(v); wsel.value = String(v); wallchip.style.background = hex(v); applyTheme(s, commit); };
+    const setWall = (v, commit) => { wp.value = hex(v); wh.value = hex(v); wsel.value = String(v); wallchip.style.background = hex(v); applyMutate(sp => sp.wallColor = v, commit); };
     wsel.onchange = (ev) => setWall(parseInt(ev.target.value, 10), true);
     wp.oninput = () => setWall(parseInt(wp.value.slice(1), 16), false);
     wp.onchange = () => setWall(parseInt(wp.value.slice(1), 16), true);
     wh.onchange = () => { const v = normHex(wh.value); if (v) setWall(parseInt(v.slice(1), 16), true); else wh.value = hex(s.wallColor); };
     const fp = el.querySelector('.wfloorpick'), fh = el.querySelector('.wfloorhex');
-    const setTint = (v, commit) => { s.floorTint = v; fp.value = hex(v); fh.value = hex(v); floorchip.style.background = hex(v); applyTheme(s, commit); };
+    const setTint = (v, commit) => { fp.value = hex(v); fh.value = hex(v); floorchip.style.background = hex(v); applyMutate(sp => sp.floorTint = v, commit); };
     fp.oninput = () => setTint(parseInt(fp.value.slice(1), 16), false);
     fp.onchange = () => setTint(parseInt(fp.value.slice(1), 16), true);
     fh.onchange = () => { const v = normHex(fh.value); if (v) setTint(parseInt(v.slice(1), 16), true); else fh.value = hex(s.floorTint); };
+    el.querySelector('.wceil').onchange = (ev) => { applyMutate(sp => sp.ceilColor = parseInt(ev.target.value, 10)); buildWingEditor(); };
+    const cp = el.querySelector('.wceilpick'), ch = el.querySelector('.wceilhex');
+    const setCeil = (v, commit) => { cp.value = hex(v); ch.value = hex(v); ceilchip.style.background = hex(v); applyMutate(sp => sp.ceilColor = v, commit); };
+    cp.oninput = () => setCeil(parseInt(cp.value.slice(1), 16), false);
+    cp.onchange = () => setCeil(parseInt(cp.value.slice(1), 16), true);
+    ch.onchange = () => { const v = normHex(ch.value); if (v) setCeil(parseInt(v.slice(1), 16), true); else ch.value = hex(s.ceilColor != null ? s.ceilColor : 0x101018); };
+    const hp = el.querySelector('.wheadpick'), hh = el.querySelector('.wheadhex');
+    const setHead = (v, commit) => { hp.value = hex(v); hh.value = hex(v); applyMutate(sp => sp.headingColor = v, commit); };
+    hp.oninput = () => setHead(parseInt(hp.value.slice(1), 16), false);
+    hp.onchange = () => setHead(parseInt(hp.value.slice(1), 16), true);
+    hh.onchange = () => { const v = normHex(hh.value); if (v) setHead(parseInt(v.slice(1), 16), true); else hh.value = hex(headingColorFor(s)); };
+    el.querySelector('[data-savetheme]').onclick = () => {
+      const name = (prompt('Name this theme:', s.name + ' theme') || '').trim(); if (!name) return;
+      const t = { id: 'ct' + Date.now() + Math.floor(Math.random() * 1000), name, wallColor: s.wallColor, wallPattern: s.wallPattern || 'smooth', floorType: s.floorType, floorTint: s.floorTint != null ? s.floorTint : 0xffffff, ceilColor: s.ceilColor != null ? s.ceilColor : 0x101018 };
+      customThemes.push(t); saveCustomThemes(); buildWingEditor(); toast('Theme saved: ' + t.name);
+    };
+    el.querySelector('.wcustomtheme')?.addEventListener('change', (ev) => {
+      const t = customThemes.find(x => x.id === ev.target.value); if (!t) return;
+      applyMutate(sp => { sp.wallColor = t.wallColor; sp.wallPattern = t.wallPattern; sp.floorType = t.floorType; sp.floorTint = t.floorTint; sp.ceilColor = t.ceilColor; });
+      buildWingEditor(); toast('Theme "' + t.name + '" applied' + (applyAll ? ' to the whole museum' : ''));
+    });
+    el.querySelector('[data-deltheme]')?.addEventListener('click', () => {
+      const sel = el.querySelector('.wcustomtheme'); const id = sel?.value;
+      if (!id) { toast('Pick a saved theme to delete first'); return; }
+      const idx = customThemes.findIndex(x => x.id === id); if (idx < 0) return;
+      const name = customThemes[idx].name; customThemes.splice(idx, 1); saveCustomThemes(); buildWingEditor(); toast('Deleted theme: ' + name);
+    });
     el.querySelector('[data-go]').onclick = () => { if (!started) enterTour(); teleport(s.id); closeMenu(); };
     el.querySelector('[data-mus]').onclick = () => { musicScope = s.id; document.getElementById('musicFile').click(); };
     el.querySelector('[data-musx]')?.addEventListener('click', () => Music.clearTrack(s.id));
@@ -1868,7 +1998,7 @@ function buildFromConfig(cfg) {
     let s;
     if (o.floorType) {
       // New format: independent floor/wall
-      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseHeadings: migrateShowcaseHeadings(o), showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
+      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, ceilColor: o.ceilColor, headingColor: o.headingColor, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseHeadings: migrateShowcaseHeadings(o), showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
     } else {
       // Old format: styleId only — convert to new format
       const preset = presetById(o.styleId);
@@ -1878,14 +2008,14 @@ function buildFromConfig(cfg) {
   });
   nextId = cfg.nextId || spaces.size;
   spaces.forEach(buildSpaceBase);
-  (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); addInsetSide(spaces.get(nb), OPP[c.side]); } });
+  (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); addInsetSide(spaces.get(nb), OPP[c.side]); } });
   spaces.forEach(s => { for (const sd of SIDES) buildWallSide(s, sd); });
   connections.forEach(c => { c.doorMeshes = buildConnDoors(c); });
   spaces.forEach(s => applyTheme(s, false));
 }
 async function boot() {
   const share = readShare(); const recs = share ? [] : await DB.all(); let config = null; const mediaRecs = []; showcaseIntroSeen = false;
-  for (const r of recs) { if (r.frame === 'config') config = r.config; else if (r.frame === 'showcaseIntroSeen') showcaseIntroSeen = true; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) mediaRecs.push(r); }
+  for (const r of recs) { if (r.frame === 'config') config = r.config; else if (r.frame === 'customThemes') customThemes = r.list || []; else if (r.frame === 'showcaseIntroSeen') showcaseIntroSeen = true; else if (typeof r.frame === 'string' && r.frame.startsWith('music')) Music.loadRecord(r); else if (typeof r.frame === 'string' && r.frame.includes(':')) mediaRecs.push(r); }
   // The showcase-explainer prompt (see maybeShowShowcaseIntro) only makes sense for a genuinely
   // brand-new museum — anyone loading a shared layout, an existing config, or existing media already
   // has an established showcase preference (or made one already), so it's marked "seen" for them
@@ -1899,9 +2029,9 @@ async function boot() {
       return { id: a[0], type: a[1], name: a[2], floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: a[4], x1: a[5], z0: a[6], z1: a[7], sectionTitles: a[8] || { N: '', S: '', E: '', W: '' } };
     } else {
       // New format: [id, type, name, floorType, wallColor, wallRoughness, wallMetalness, lightColor, lightIntensity, accent, x0, x1, z0, z1, sectionTitles]
-      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' }, wallPattern: a[15], floorTint: a[16], showcaseScope: a[17] || 'all', showcaseHeadings: (a[18] && typeof a[18] === 'object') ? a[18] : (a[18] != null ? { N: a[18], S: a[18], E: a[18], W: a[18] } : undefined), showcaseWallColor: a[19], showcaseWallPattern: a[20], showcaseWallScopes: a[21] };
+      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' }, wallPattern: a[15], floorTint: a[16], showcaseScope: a[17] || 'all', showcaseHeadings: (a[18] && typeof a[18] === 'object') ? a[18] : (a[18] != null ? { N: a[18], S: a[18], E: a[18], W: a[18] } : undefined), showcaseWallColor: a[19], showcaseWallPattern: a[20], showcaseWallScopes: a[21], ceilColor: a[22], headingColor: a[23] };
     }
-  }), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
+  }), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3], heading: a[4], headingColor: a[5] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
   else {
     if (config && config.spaces?.length) buildFromConfig(config);
     else { const preset = PRESETS[0]; const s = { id: 's' + (nextId++), type: 'room', name: 'Main Hall', floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: -RW / 2, x1: RW / 2, z0: -RD / 2, z1: RD / 2, showcaseEnabled: false }; spaces.set(s.id, s); buildSpaceBase(s); for (const sd of SIDES) buildWallSide(s, sd); applyTheme(s, false); saveConfig(); }
