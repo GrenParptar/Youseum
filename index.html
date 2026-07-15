@@ -328,24 +328,39 @@ const floorGen = {
   // Square stone tiles with grout. The grout fills the background and tiles are inset, so the
   // pattern is seamless when the 512² canvas repeats (grout meets grout at every edge).
   tile: () => mkTex((x, s) => { const n = 4, cell = s / n, pad = 4; x.fillStyle = '#2f3136'; x.fillRect(0, 0, s, s); for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { const v = Math.random() * 20 - 10; x.fillStyle = `rgb(${208 + v},${203 + v},${193 + v})`; x.fillRect(i * cell + pad, j * cell + pad, cell - 2 * pad, cell - 2 * pad); x.fillStyle = 'rgba(0,0,0,.05)'; for (let k = 0; k < 22; k++) { const vx = i * cell + pad + Math.random() * (cell - 2 * pad), vy = j * cell + pad + Math.random() * (cell - 2 * pad); x.fillRect(vx, vy, 5 + Math.random() * 10, 1); } } }, 1, 1),
+  // Broom-finished slab with saw-cut expansion joints — a plainer, lighter industrial floor distinct
+  // from the speckled "Concrete" above.
+  cement: () => mkTex((x, s) => { x.fillStyle = '#8f8f8f'; x.fillRect(0, 0, s, s); for (let i = 0; i < 6000; i++) { const v = Math.random() * 30 - 15; x.fillStyle = `rgba(${140 + v},${140 + v},${142 + v},.06)`; x.fillRect(Math.random() * s, Math.random() * s, 2, 2); } x.strokeStyle = 'rgba(0,0,0,.22)'; x.lineWidth = 3; for (const p of [0, 0.5, 1]) { x.beginPath(); x.moveTo(p * s, 0); x.lineTo(p * s, s); x.stroke(); x.beginPath(); x.moveTo(0, p * s); x.lineTo(s, p * s); x.stroke(); } for (let i = 0; i < 8; i++) { x.fillStyle = `rgba(60,55,50,${Math.random() * .05})`; x.beginPath(); x.arc(Math.random() * s, Math.random() * s, 20 + Math.random() * 40, 0, 7); x.fill(); } }, 1, 1),
+  // Honeycomb hex tiles — flat-top hexagons in a running pattern with mortar showing through the gaps.
+  hex: () => mkTex((x, s) => {
+    x.fillStyle = '#bdbdbd'; x.fillRect(0, 0, s, s);
+    const R = 42.6, w = Math.sqrt(3) * R, hgt = 2 * R;
+    const poly = (cx, cy) => { x.beginPath(); for (let i = 0; i < 6; i++) { const a = Math.PI / 3 * i + Math.PI / 6, px = cx + R * 0.94 * Math.cos(a), py = cy + R * 0.94 * Math.sin(a); i === 0 ? x.moveTo(px, py) : x.lineTo(px, py); } x.closePath(); };
+    for (let row = -1; row <= s / (hgt * 0.75) + 1; row++) { const cy = row * hgt * 0.75, offset = (row % 2) ? w / 2 : 0;
+      for (let col = -1; col <= s / w + 1; col++) { const cx = col * w + offset, v = Math.random() * 16 - 8;
+        x.fillStyle = `rgb(${222 + v},${219 + v},${212 + v})`; poly(cx, cy); x.fill(); x.strokeStyle = 'rgba(0,0,0,.14)'; x.lineWidth = 1.5; x.stroke(); } }
+  }, 1, 1),
 };
+// Checkered tile is drawn per-space (not cached by type alone) because its dark square colour is a
+// per-room custom setting (s.checkerColor) rather than a fixed design, unlike every other floor type.
+const checkerCache = {};
+function checkerTexFor(darkColor) { const key = 'checker:' + darkColor; return checkerCache[key] || (checkerCache[key] = mkTex((x, s) => { const n = 8, cell = s / n; for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { x.fillStyle = ((i + j) % 2 === 0) ? '#f2f2f2' : hex(darkColor); x.fillRect(i * cell, j * cell, cell, cell); } x.strokeStyle = 'rgba(0,0,0,.15)'; x.lineWidth = 2; for (let i = 0; i <= n; i++) { x.beginPath(); x.moveTo(i * cell, 0); x.lineTo(i * cell, s); x.stroke(); x.beginPath(); x.moveTo(0, i * cell); x.lineTo(s, i * cell); x.stroke(); } }, 1, 1)); }
 const floorCache = {}; const getFloor = (k) => floorCache[k] || (floorCache[k] = floorGen[k]());
 // One texture tile spans FLOORTILE world units. We world-align the UVs (offset derived from the
 // space's world origin) so board/tile seams line up continuously across adjacent hall/wing segments.
 const FLOORTILE = 3;
-function floorTexFor(k, s) { const w = s.x1 - s.x0, d = s.z1 - s.z0; const t = getFloor(k).clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / FLOORTILE, d / FLOORTILE); t.offset.set(s.x0 / FLOORTILE, -s.z1 / FLOORTILE); return t; }
+function floorTexFor(k, s) { const w = s.x1 - s.x0, d = s.z1 - s.z0; const base = (k === 'checker') ? checkerTexFor(s.checkerColor != null ? s.checkerColor : 0x141414) : getFloor(k); const t = base.clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / FLOORTILE, d / FLOORTILE); t.offset.set(s.x0 / FLOORTILE, -s.z1 / FLOORTILE); return t; }
 // Surface finish per floor DESIGN (not per preset) so the same floor looks identical in every
 // space — a wood hall and a wood wing render with the exact same sheen. Kept fairly matte
 // (metalness 0) so floors don't read as glossy when peering between rooms.
-const FLOOR_MAT = { wood: { rough: 0.82, metal: 0 }, marble: { rough: 0.55, metal: 0 }, tile: { rough: 0.6, metal: 0 }, dark: { rough: 0.5, metal: 0 }, concrete: { rough: 0.9, metal: 0 } };
+const FLOOR_MAT = { wood: { rough: 0.82, metal: 0 }, marble: { rough: 0.55, metal: 0 }, tile: { rough: 0.6, metal: 0 }, checker: { rough: 0.5, metal: 0.05 }, hex: { rough: 0.6, metal: 0 }, dark: { rough: 0.5, metal: 0 }, concrete: { rough: 0.9, metal: 0 }, cement: { rough: 0.95, metal: 0 } };
 const floorMatFor = (k) => FLOOR_MAT[k] || FLOOR_MAT.wood;
 
-// ===== Brick wall pattern =====
-// A tileable brick texture kept near-white with darker mortar so it TINTS to whatever wall colour
-// is chosen (the wall material's color multiplies the map): white bricks -> the chosen colour, grey
-// mortar -> a darker shade of it. UVs are baked in world space (bakeWallUV) so courses line up
-// across adjacent wall segments and continue above doorways.
-const BRICKTILE = 1.7; // world units spanned by one 512² brick tile (≈8 courses of ~0.21m brick)
+// ===== Wall patterns (brick / cinder block / riveted metal) =====
+// Tileable textures kept near-white with darker detailing so they TINT to whatever wall colour is
+// chosen (the wall material's color multiplies the map). UVs are baked in world space (bakeWallUV)
+// so courses/panels line up across adjacent wall segments and continue above doorways.
+const BRICKTILE = 1.7; // world units spanned by one 512² tile (≈8 courses of ~0.21m brick)
 const brickTex = mkTex((x, s) => {
   const rows = 8, bh = s / rows, cols = 4, bw = s / cols, m = Math.max(3, s * 0.012);
   x.fillStyle = '#8c8c8c'; x.fillRect(0, 0, s, s);                       // mortar
@@ -358,6 +373,72 @@ const brickTex = mkTex((x, s) => {
     }
   }
 }, 1, 1);
+// Concrete masonry units: fewer, larger blocks than brick, with a speckled face.
+const cinderTex = mkTex((x, s) => {
+  const rows = 4, bh = s / rows, cols = 3, bw = s / cols, m = Math.max(4, s * 0.02);
+  x.fillStyle = '#7d7d7d'; x.fillRect(0, 0, s, s);                       // mortar
+  for (let r = 0; r < rows; r++) {
+    const y = r * bh, shift = (r % 2) ? bw / 2 : 0;
+    for (let c = -1; c <= cols; c++) {
+      const bx = c * bw + shift, v = Math.random() * 14 - 7;
+      x.fillStyle = `rgb(${200 + v},${198 + v},${194 + v})`;
+      x.fillRect(bx + m / 2, y + m / 2, bw - m, bh - m);
+      for (let k = 0; k < 10; k++) { x.fillStyle = `rgba(0,0,0,${Math.random() * .05})`; x.fillRect(bx + m / 2 + Math.random() * (bw - m), y + m / 2 + Math.random() * (bh - m), 3, 3); }
+    }
+  }
+}, 1, 1);
+// Riveted steel panels: brushed-metal streaks, panel seams, and rivets at each panel's corners.
+const riveTex = mkTex((x, s) => {
+  x.fillStyle = '#b7b9bd'; x.fillRect(0, 0, s, s);
+  for (let i = 0; i < 900; i++) { x.fillStyle = `rgba(255,255,255,${Math.random() * .05})`; x.fillRect(0, Math.random() * s, s, 1); }
+  for (let i = 0; i < 900; i++) { x.fillStyle = `rgba(0,0,0,${Math.random() * .05})`; x.fillRect(0, Math.random() * s, s, 1); }
+  const cols = 2, rows = 2, cw = s / cols, ch = s / rows;
+  x.strokeStyle = 'rgba(0,0,0,.35)'; x.lineWidth = 3;
+  for (let c = 1; c < cols; c++) { x.beginPath(); x.moveTo(c * cw, 0); x.lineTo(c * cw, s); x.stroke(); }
+  for (let r = 1; r < rows; r++) { x.beginPath(); x.moveTo(0, r * ch); x.lineTo(s, r * ch); x.stroke(); }
+  const rivet = (cx, cy) => { x.fillStyle = '#3a3a3d'; x.beginPath(); x.arc(cx, cy, 6, 0, Math.PI * 2); x.fill(); x.fillStyle = 'rgba(255,255,255,.5)'; x.beginPath(); x.arc(cx - 1.5, cy - 1.5, 2, 0, Math.PI * 2); x.fill(); };
+  const pad = 16;
+  for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) { const x0 = c * cw, y0 = r * ch; rivet(x0 + pad, y0 + pad); rivet(x0 + cw - pad, y0 + pad); rivet(x0 + pad, y0 + ch - pad); rivet(x0 + cw - pad, y0 + ch - pad); }
+}, 1, 1);
+const WALL_TEX = { brick: brickTex, cinder: cinderTex, rivet: riveTex };
+const WALL_PATTERN_MAT = { smooth: { rough: 0.9, metal: 0 }, brick: { rough: 0.98, metal: 0 }, cinder: { rough: 0.97, metal: 0 }, rivet: { rough: 0.4, metal: 0.55 } };
+const wallPatternMatFor = (k) => WALL_PATTERN_MAT[k] || WALL_PATTERN_MAT.smooth;
+
+// ===== Ceiling patterns (drop / industrial / industrial farmhouse) =====
+const CEIL_TEX = {
+  // Suspended acoustic-tile grid: pale tiles inset from a visible metal T-bar grid.
+  drop: mkTex((x, s) => {
+    x.fillStyle = '#cfd1d6'; x.fillRect(0, 0, s, s);
+    const n = 4, cell = s / n, pad = 6;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { const v = Math.random() * 10 - 5; x.fillStyle = `rgb(${214 + v},${216 + v},${220 + v})`; x.fillRect(i * cell + pad, j * cell + pad, cell - 2 * pad, cell - 2 * pad); for (let k = 0; k < 40; k++) { x.fillStyle = `rgba(120,120,130,${Math.random() * .05})`; x.fillRect(i * cell + pad + Math.random() * (cell - 2 * pad), j * cell + pad + Math.random() * (cell - 2 * pad), 2, 2); } }
+    x.strokeStyle = '#8d8f96'; x.lineWidth = 5;
+    for (let i = 0; i <= n; i++) { x.beginPath(); x.moveTo(i * cell, 0); x.lineTo(i * cell, s); x.stroke(); x.beginPath(); x.moveTo(0, i * cell); x.lineTo(s, i * cell); x.stroke(); }
+  }, 1, 1),
+  // Exposed corrugated metal deck with duct/beam seams.
+  industrial: mkTex((x, s) => {
+    x.fillStyle = '#33363b'; x.fillRect(0, 0, s, s);
+    const rw = s / 24;
+    for (let i = 0; i < 24; i++) { x.fillStyle = i % 2 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.12)'; x.fillRect(i * rw, 0, rw, s); }
+    for (let i = 0; i < 1400; i++) { x.fillStyle = `rgba(0,0,0,${Math.random() * .08})`; x.fillRect(Math.random() * s, Math.random() * s, 2, 2); }
+    x.strokeStyle = 'rgba(0,0,0,.4)'; x.lineWidth = 6;
+    for (const p of [0.25, 0.5, 0.75]) { x.beginPath(); x.moveTo(0, p * s); x.lineTo(s, p * s); x.stroke(); }
+  }, 1, 1),
+  // Rustic wood-plank ceiling with dark iron beams — the "industrial farmhouse" combination look.
+  farmhouse: mkTex((x, s) => {
+    x.fillStyle = '#c9b28f'; x.fillRect(0, 0, s, s);
+    const rows = 6, bh = s / rows;
+    for (let r = 0; r < rows; r++) { const y = r * bh, v = Math.random() * 18 - 9; x.fillStyle = `rgb(${196 + v},${172 + v},${138 + v})`; x.fillRect(0, y + 2, s, bh - 4); x.strokeStyle = 'rgba(60,40,20,.35)'; x.lineWidth = 2; x.beginPath(); x.moveTo(0, y); x.lineTo(s, y); x.stroke();
+      for (let k = 0; k < 20; k++) { x.strokeStyle = `rgba(70,45,20,${Math.random() * .15})`; x.beginPath(); const gy = y + Math.random() * bh; x.moveTo(Math.random() * s, gy); x.lineTo(Math.random() * s, gy); x.stroke(); } }
+    x.fillStyle = 'rgba(35,32,30,.85)';
+    for (const p of [0.15, 0.5, 0.85]) x.fillRect(p * s - 10, 0, 20, s);
+  }, 1, 1),
+};
+const CEIL_PATTERN_MAT = { flat: { rough: 1, metal: 0 }, drop: { rough: 0.85, metal: 0 }, industrial: { rough: 0.55, metal: 0.55 }, farmhouse: { rough: 0.8, metal: 0.15 } };
+const ceilPatternMatFor = (k) => CEIL_PATTERN_MAT[k] || CEIL_PATTERN_MAT.flat;
+// One texture tile spans CEILTILE world units — density-matched per-room via repeat (a single flat
+// box per room, unlike walls, so no cross-segment UV baking is needed).
+const CEILTILE = 3;
+function ceilTexFor(pattern, w, d) { const base = CEIL_TEX[pattern]; if (!base) return null; const t = base.clone(); t.needsUpdate = true; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(w / CEILTILE, d / CEILTILE); return t; }
 // Project a wall box's UVs into world space so one brick tile = BRICKTILE world units and courses
 // align everywhere. Harmless for smooth (untextured) walls, so it's applied to every wall box.
 function bakeWallUV(mesh, axisIsX) {
@@ -503,16 +584,18 @@ function updateSectionTitles(s) {
 // (and its floor stops reading as glossy from the over-bright specular highlight).
 function spaceLightIntensity(s) { const area = (s.x1 - s.x0) * (s.z1 - s.z0); return s.lightIntensity * clamp(area / (RW * RD), 0.45, 1.1); }
 function buildSpaceBase(s) {
-  if (s.wallPattern == null) s.wallPattern = 'smooth';           // 'smooth' | 'brick'
+  if (s.wallPattern == null) s.wallPattern = 'smooth';           // 'smooth' | 'brick' | 'cinder' | 'rivet'
   if (s.floorTint == null) s.floorTint = 0xffffff;               // white = untinted floor
+  if (s.checkerColor == null) s.checkerColor = 0x141414;         // dark-square colour, checkered floor only
   if (s.ceilColor == null) s.ceilColor = 0x101018;               // per-room ceiling colour
+  if (s.ceilPattern == null) s.ceilPattern = 'flat';             // 'flat' | 'drop' | 'industrial' | 'farmhouse'
   const cx = (s.x0 + s.x1) / 2, cz = (s.z0 + s.z1) / 2, w = s.x1 - s.x0, d = s.z1 - s.z0;
   s.cx = cx; s.cz = cz; s.wallMat = new THREE.MeshStandardMaterial({ color: s.wallColor, roughness: 0.9 });
   const fm = floorMatFor(s.floorType);
   s.floorMat = new THREE.MeshStandardMaterial({ map: floorTexFor(s.floorType, s), color: (s.floorTint != null ? s.floorTint : 0xffffff), roughness: fm.rough, metalness: fm.metal });
   const fl = new THREE.Mesh(new THREE.PlaneGeometry(w, d), s.floorMat); fl.rotation.x = -Math.PI / 2; fl.position.set(cx, 0, cz); fl.userData.floorId = s.id; scene.add(fl); s.floor = fl;
-  // Per-space ceiling material (NOT the shared global ceilMat) so each room's ceiling colour is independent.
-  s.ceilMat = new THREE.MeshStandardMaterial({ color: s.ceilColor, roughness: 1 });
+  // Per-space ceiling material (NOT a shared global one) so each room's ceiling colour/pattern is independent.
+  { const cpm = ceilPatternMatFor(s.ceilPattern); s.ceilMat = new THREE.MeshStandardMaterial({ color: s.ceilColor, map: ceilTexFor(s.ceilPattern, w, d), roughness: cpm.rough, metalness: cpm.metal }); }
   s.ceil = box(cx, H, cz, w, 0.3, d, s.ceilMat, false);
   const long = Math.max(w, d); s.strip = buildStrip(s, cx, cz, w, d, long);
   s.point = new THREE.PointLight(s.lightColor, spaceLightIntensity(s), 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
@@ -543,8 +626,9 @@ function updateShowcaseTheme(s) {
   s.showcaseWallMat.color.set(color);
   s.showcaseWallMat.emissive.set(color);
   s.showcaseWallMat.emissiveIntensity = 0.45;
-  s.showcaseWallMat.map = pattern === 'brick' ? brickTex : null;
-  s.showcaseWallMat.roughness = pattern === 'brick' ? 0.98 : 0.9;
+  s.showcaseWallMat.map = WALL_TEX[pattern] || null;
+  const pm = wallPatternMatFor(pattern);
+  s.showcaseWallMat.roughness = pm.rough; s.showcaseWallMat.metalness = pm.metal;
   s.showcaseWallMat.needsUpdate = true;
 }
 // The editable wall header painted above each showcase frame — independent per wall, so each of the
@@ -795,9 +879,13 @@ function buildDoorPortal(c) { const a = spaces.get(c.a); if (!a) return []; cons
 // The editable heading painted in the header band directly above a doorway (as opposed to a wall's
 // own side-wide heading) — one mesh per side of the opening so it reads correctly walking through
 // from either room. Skipped for a seamless hall-to-hall extension, which has no header band at all.
+// Sits in its own band ABOVE the room's own wall heading (positionSectionTitle, centred at y=3.78,
+// whose tallest possible case tops out at 3.78+0.525=4.305) and below the ceiling's underside
+// (H-0.15=4.85), so a doorway heading and that wall's own heading can never visually overlap
+// regardless of wall length, doorway width, or where the doorway sits along the wall.
 function positionDoorHeading(s, side, lo, hi, m) {
-  const mid = (lo + hi) / 2, len = hi - lo, h = Math.min(0.85, Math.max(0.4, (len - 0.3) / 3)); m.scale.set(h * 3, h, 1);
-  const off = T / 2 + 0.06, y = (DOORH + HEADH - 0.05 + H) / 2;
+  const mid = (lo + hi) / 2, len = hi - lo, h = Math.min(0.32, Math.max(0.18, (len - 0.6) / 6)); m.scale.set(h * 3, h, 1);
+  const off = T / 2 + 0.06, y = 4.58;
   if (side === 'N') { m.position.set(mid, y, s.z0 + off); m.rotation.y = 0; }
   else if (side === 'S') { m.position.set(mid, y, s.z1 - off); m.rotation.y = Math.PI; }
   else if (side === 'E') { m.position.set(s.x1 - off, y, mid); m.rotation.y = -Math.PI / 2; }
@@ -839,9 +927,9 @@ function buildConnDoors(c) { if (isSeamlessConn(c)) return []; const a = spaces.
 function applyTheme(s, save = true) {
   const fm = floorMatFor(s.floorType);
   s.wallMat.color.set(s.wallColor);
-  // Brick pattern tints via the wall colour; a touch rougher so bricks don't look glossy.
-  s.wallMat.map = (s.wallPattern === 'brick') ? brickTex : null;
-  s.wallMat.roughness = (s.wallPattern === 'brick') ? 0.98 : 0.9;
+  // Each pattern tints via the wall colour (the texture multiplies the material's color).
+  s.wallMat.map = WALL_TEX[s.wallPattern] || null;
+  { const pm = wallPatternMatFor(s.wallPattern); s.wallMat.roughness = pm.rough; s.wallMat.metalness = pm.metal; }
   s.wallMat.needsUpdate = true;
   s.floorMat.map = floorTexFor(s.floorType, s);
   s.floorMat.color.set(s.floorTint != null ? s.floorTint : 0xffffff);   // custom floor tint (white = untinted)
@@ -852,7 +940,7 @@ function applyTheme(s, save = true) {
   s.point.intensity = spaceLightIntensity(s);
   s.spots.forEach(sp => sp.color.set(s.lightColor));
   s.stars.visible = s.floorType === 'dark';
-  if (s.ceilMat) { s.ceilMat.color.set(s.ceilColor != null ? s.ceilColor : 0x101018); s.ceilMat.needsUpdate = true; }
+  if (s.ceilMat) { s.ceilMat.color.set(s.ceilColor != null ? s.ceilColor : 0x101018); s.ceilMat.map = ceilTexFor(s.ceilPattern, s.x1 - s.x0, s.z1 - s.z0); const cpm = ceilPatternMatFor(s.ceilPattern); s.ceilMat.roughness = cpm.rough; s.ceilMat.metalness = cpm.metal; s.ceilMat.needsUpdate = true; }
   updateSectionTitles(s);
   updateShowcaseTheme(s); updateShowcaseHeading(s);
   // A doorway heading's colour falls back to the OWNING space's headingColor/accent, so it must be
@@ -1317,7 +1405,7 @@ async function deleteSpace(id, opts = {}) {
   if (opts.confirm && !confirm('Delete "' + s.name + '" and everything in it?')) return;
   GT.stop();
   let snap = null;
-  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, ceilColor: s.ceilColor, headingColor: s.headingColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings ? { ...s.showcaseHeadings } : null, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes ? { ...s.showcaseWallScopes } : null }, conns: [], media }; }
+  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, checkerColor: s.checkerColor, ceilColor: s.ceilColor, ceilPattern: s.ceilPattern, headingColor: s.headingColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings ? { ...s.showcaseHeadings } : null, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes ? { ...s.showcaseWallScopes } : null }, conns: [], media }; }
   const involved = connections.filter(c => c.a === id || spaceOnOtherSide(c) === id);
   const reseal = involved.map(c => ({ otherId: (c.a === id) ? spaceOnOtherSide(c) : c.a, otherSide: (c.a === id) ? OPP[c.side] : c.side, lo: c.lo, hi: c.hi, doorMeshes: c.doorMeshes }));
   if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor }));
@@ -1372,8 +1460,15 @@ function nextEmpty(scope) { const pool = scope === 'room' ? (spaces.get(currentI
 // selectable from any room's "Custom themes" dropdown (or applied museum-wide via that panel's
 // "Apply to whole museum" toggle). Persisted separately from the layout config.
 let customThemes = [];
-const saveCustomThemes = () => DB.put({ frame: 'customThemes', list: customThemes });
-const saveConfig = () => DB.put({ frame: 'config', config: { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, ceilColor: s.ceilColor, headingColor: s.headingColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor })), nextId, showSectionTitles } });
+let themeSaveQueue = Promise.resolve();
+const saveCustomThemes = () => { const list = customThemes.slice(); return (themeSaveQueue = themeSaveQueue.then(() => DB.put({ frame: 'customThemes', list }))); };
+// Queued (not fire-and-forget): each DB.put is chained after the previous one settles, so rapid
+// successive edits (very easy now with several controls in the same room panel — ceiling pattern,
+// then floor, then colour, then wall pattern in quick succession) always land in the order they were
+// made. Without this, two overlapping DB.put calls could resolve out of order and an EARLIER, staler
+// snapshot could overwrite a LATER one, silently discarding whichever edits came in between.
+let saveQueue = Promise.resolve();
+const saveConfig = () => { const config = { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, checkerColor: s.checkerColor, ceilColor: s.ceilColor, ceilPattern: s.ceilPattern, headingColor: s.headingColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor })), nextId, showSectionTitles }; return (saveQueue = saveQueue.then(() => DB.put({ frame: 'config', config }))); };
 
 /* ===== showcase (main wing's centre display) ===== */
 function mainWing() { for (const s of spaces.values()) if (s.type === 'room') return s; return null; }
@@ -1640,9 +1735,11 @@ function openCtxMenu(kind, target) {
     const applyMutate = (mutate, commit = true) => { if (applyAll) { spaces.forEach(mutate); spaces.forEach(sp => applyTheme(sp, false)); if (commit) saveConfig(); } else { mutate(s); applyTheme(s, commit); } };
     ctxAddSwatches(optsEl, 'Floor design', FLOOR_TYPES.map(t => ({ label: t.name, value: t.value, on: t.value === s.floorType })), true, (t) => { applyMutate(sp => sp.floorType = t.value); buildWingEditor(); });
     ctxAddColorPicker(optsEl, 'Floor tint (custom)', s.floorTint != null ? s.floorTint : 0xffffff, (v, commit) => { applyMutate(sp => sp.floorTint = v, commit); if (commit) buildWingEditor(); });
-    ctxAddSwatches(optsEl, 'Wall pattern', [{ label: 'Smooth', value: 'smooth' }, { label: 'Brick', value: 'brick' }].map(p => ({ label: p.label, value: p.value, on: p.value === s.wallPattern })), true, (p) => { applyMutate(sp => sp.wallPattern = p.value); buildWingEditor(); });
+    ctxAddColorPicker(optsEl, 'Checkered floor — dark square colour', s.checkerColor != null ? s.checkerColor : 0x141414, (v, commit) => { applyMutate(sp => sp.checkerColor = v, commit); if (commit) buildWingEditor(); });
+    ctxAddSwatches(optsEl, 'Wall pattern', WALL_PATTERNS.map(p => ({ label: p.name, value: p.value, on: p.value === s.wallPattern })), true, (p) => { applyMutate(sp => sp.wallPattern = p.value); buildWingEditor(); });
     ctxAddSwatches(optsEl, 'Wall colour', WALL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === s.wallColor })), false, (c) => { applyMutate(sp => sp.wallColor = c.value); buildWingEditor(); });
     ctxAddColorPicker(optsEl, 'Wall colour (custom)', s.wallColor, (v, commit) => { applyMutate(sp => sp.wallColor = v, commit); if (commit) buildWingEditor(); });
+    ctxAddSwatches(optsEl, 'Ceiling style', CEIL_PATTERNS.map(p => ({ label: p.name, value: p.value, on: p.value === (s.ceilPattern || 'flat') })), true, (p) => { applyMutate(sp => sp.ceilPattern = p.value); buildWingEditor(); });
     ctxAddSwatches(optsEl, 'Ceiling colour', CEIL_COLORS.map(c => ({ label: c.name, value: c.value, on: c.value === (s.ceilColor != null ? s.ceilColor : 0x101018) })), false, (c) => { applyMutate(sp => sp.ceilColor = c.value); buildWingEditor(); });
     ctxAddColorPicker(optsEl, 'Ceiling colour (custom)', s.ceilColor != null ? s.ceilColor : 0x101018, (v, commit) => { applyMutate(sp => sp.ceilColor = v, commit); if (commit) buildWingEditor(); });
     ctxAddColorPicker(optsEl, 'Wall & doorway header colour', headingColorFor(s), (v, commit) => { applyMutate(sp => sp.headingColor = v, commit); if (commit) buildWingEditor(); });
@@ -1706,7 +1803,7 @@ document.getElementById('importFile').addEventListener('change', async (e) => {
   location.hash = ''; setTimeout(() => location.reload(), 400);
 });
 async function saveGallery() { for (const f of frames) if (f.filled) { const rec = await DB.get(f.id); if (rec) { rec.title = f.title; await DB.put(rec); } } await saveConfig(); toast('Saved to this browser'); }
-function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint, s.showcaseScope, s.showcaseHeadings, s.showcaseWallColor, s.showcaseWallPattern, s.showcaseWallScopes, s.ceilColor, s.headingColor]), c: connections.map(c => [c.a, c.side, c.lo, c.hi, c.heading, c.headingColor]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
+function shareLink() { const obj = { s: [...spaces.values()].map(s => [s.id, s.type, s.name, s.floorType, s.wallColor, s.wallRoughness, s.wallMetalness, s.lightColor, s.lightIntensity, s.accent, s.x0, s.x1, s.z0, s.z1, s.sectionTitles, s.wallPattern, s.floorTint, s.showcaseScope, s.showcaseHeadings, s.showcaseWallColor, s.showcaseWallPattern, s.showcaseWallScopes, s.ceilColor, s.headingColor, s.checkerColor, s.ceilPattern]), c: connections.map(c => [c.a, c.side, c.lo, c.hi, c.heading, c.headingColor]), n: nextId, t: frames.filter(f => f.title).map(f => [f.id, f.title]), wt: showSectionTitles ? 1 : 0 }; const enc = encodeURIComponent(btoa(unescape(encodeURIComponent(JSON.stringify(obj))))); const link = location.origin + location.pathname + '#m=' + enc; navigator.clipboard?.writeText(link).then(() => toast('Share link copied — it carries the layout, not the photos'), () => prompt('Copy this share link:', link)); }
 function readShare() { const m = location.hash.match(/m=([^&]+)/); if (!m) return null; try { return JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(m[1]))))); } catch { return null; } }
 
 /* ===== music ===== */
@@ -1769,8 +1866,17 @@ const FLOOR_TYPES = [
   { name: 'Wood', value: 'wood' },
   { name: 'Marble', value: 'marble' },
   { name: 'Tile', value: 'tile' },
+  { name: 'Checkered Tile', value: 'checker' },
+  { name: 'Hexagon Tile', value: 'hex' },
   { name: 'Dark', value: 'dark' },
   { name: 'Concrete', value: 'concrete' },
+  { name: 'Cement', value: 'cement' },
+];
+const WALL_PATTERNS = [
+  { name: 'Smooth', value: 'smooth' },
+  { name: 'Brick', value: 'brick' },
+  { name: 'Cinder Block', value: 'cinder' },
+  { name: 'Riveted Metal', value: 'rivet' },
 ];
 const CEIL_COLORS = [
   { name: 'Charcoal', value: 0x101018 },
@@ -1779,6 +1885,12 @@ const CEIL_COLORS = [
   { name: 'Deep Navy', value: 0x161c2c },
   { name: 'Black', value: 0x050506 },
 ];
+const CEIL_PATTERNS = [
+  { name: 'Flat', value: 'flat' },
+  { name: 'Drop Ceiling', value: 'drop' },
+  { name: 'Industrial', value: 'industrial' },
+  { name: 'Industrial Farmhouse', value: 'farmhouse' },
+];
 function buildWingEditor() {
   const mw0 = mainWing(); const showcaseOnEl = document.getElementById('showcaseOn'); if (showcaseOnEl) showcaseOnEl.checked = !!mw0 && mw0.showcaseEnabled !== false;
   const host = document.getElementById('wings'); host.innerHTML = '';
@@ -1786,7 +1898,7 @@ function buildWingEditor() {
     const presetOpts = PRESETS.map(o => `<option value="${o.id}"${o.floor === s.floorType && o.wall === s.wallColor ? ' selected' : ''}>${o.name}</option>`).join('');
     const floorOpts = FLOOR_TYPES.map(o => `<option value="${o.value}"${o.value === s.floorType ? ' selected' : ''}>${o.name}</option>`).join('');
     const wallOpts = WALL_COLORS.map(o => `<option value="${o.value}"${o.value === s.wallColor ? ' selected' : ''}>${o.name}</option>`).join('');
-    const patOpts = [['smooth', 'Smooth'], ['brick', 'Brick']].map(([v, n]) => `<option value="${v}"${s.wallPattern === v ? ' selected' : ''}>${n}</option>`).join('');
+    const patOpts = WALL_PATTERNS.map(p => `<option value="${p.value}"${s.wallPattern === p.value ? ' selected' : ''}>${p.name}</option>`).join('');
     const hasMusic = !!Music.tracks[s.id];
     const LBL = 'font-size:11px;color:#7a7a86;margin:8px 0 2px;text-transform:uppercase;letter-spacing:1.5px';
     const isMainWing = s.type === 'room';
@@ -1796,7 +1908,7 @@ function buildWingEditor() {
     const showcaseWallColorVal = s.showcaseWallColor != null ? s.showcaseWallColor : s.wallColor;
     const showcaseWallPatternVal = s.showcaseWallPattern != null ? s.showcaseWallPattern : s.wallPattern;
     const showcaseWallOpts = WALL_COLORS.map(o => `<option value="${o.value}"${o.value === showcaseWallColorVal ? ' selected' : ''}>${o.name}</option>`).join('');
-    const showcaseWallPatOpts = [['smooth', 'Smooth'], ['brick', 'Brick']].map(([v, n]) => `<option value="${v}"${showcaseWallPatternVal === v ? ' selected' : ''}>${n}</option>`).join('');
+    const showcaseWallPatOpts = WALL_PATTERNS.map(p => `<option value="${p.value}"${showcaseWallPatternVal === p.value ? ' selected' : ''}>${p.name}</option>`).join('');
     // Collapsed entirely (not just visually hidden) unless the showcase is turned on via the
     // top-level menu toggle above the Rooms & halls list — nothing to configure while it's off.
     const showcaseBlock = isMainWing
@@ -1813,6 +1925,8 @@ function buildWingEditor() {
       : '';
     const ceilColorVal = s.ceilColor != null ? s.ceilColor : 0x101018;
     const ceilOpts = CEIL_COLORS.map(o => `<option value="${o.value}"${o.value === ceilColorVal ? ' selected' : ''}>${o.name}</option>`).join('');
+    const ceilPatOpts = CEIL_PATTERNS.map(p => `<option value="${p.value}"${(s.ceilPattern || 'flat') === p.value ? ' selected' : ''}>${p.name}</option>`).join('');
+    const checkerColorVal = s.checkerColor != null ? s.checkerColor : 0x141414;
     const headColorVal = headingColorFor(s);
     const customThemeOpts = customThemes.length ? `<option value="">Apply a saved theme…</option>${customThemes.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}` : '';
     const el = document.createElement('div'); el.className = 'wing' + (s.id === currentId() ? ' current' : ''); el.dataset.id = s.id;
@@ -1823,9 +1937,11 @@ function buildWingEditor() {
       + `<details class="custpick appearance" style="margin-top:6px"><summary><span class="chip wallchip" title="Wall colour" style="background:${hex(s.wallColor)}"></span><span class="chip floorchip" title="Floor tint" style="background:${hex(s.floorTint)}"></span><span class="chip ceilchip" title="Ceiling colour" style="background:${hex(ceilColorVal)}"></span>Wall, floor &amp; ceiling<span class="arrow">▾</span></summary><div class="dropbody">`
         + `<div style="${LBL};margin-top:0">Floor design</div><select class="wfloor">${floorOpts}</select>`
         + `<div style="${LBL}">Floor tint (custom)</div><div class="pickrow"><input type="color" class="wfloorpick" value="${hex(s.floorTint)}"><input class="hex wfloorhex" value="${hex(s.floorTint)}" spellcheck="false" maxlength="7"></div>`
+        + `<div style="${LBL}">Checkered floor — dark square colour</div><div class="pickrow"><input type="color" class="wcheckpick" value="${hex(checkerColorVal)}"><input class="hex wcheckhex" value="${hex(checkerColorVal)}" spellcheck="false" maxlength="7"></div>`
         + `<div style="${LBL}">Wall pattern</div><select class="wpat">${patOpts}</select>`
         + `<div style="${LBL}">Wall color (preset)</div><select class="wwall">${wallOpts}</select>`
         + `<div style="${LBL}">Wall color (custom)</div><div class="pickrow"><input type="color" class="wwallpick" value="${hex(s.wallColor)}"><input class="hex wwallhex" value="${hex(s.wallColor)}" spellcheck="false" maxlength="7"></div>`
+        + `<div style="${LBL}">Ceiling style</div><select class="wceilpat">${ceilPatOpts}</select>`
         + `<div style="${LBL}">Ceiling colour (preset)</div><select class="wceil">${ceilOpts}</select>`
         + `<div style="${LBL}">Ceiling colour (custom)</div><div class="pickrow"><input type="color" class="wceilpick" value="${hex(ceilColorVal)}"><input class="hex wceilhex" value="${hex(ceilColorVal)}" spellcheck="false" maxlength="7"></div>`
         + `<div style="${LBL}">Wall &amp; doorway header colour</div><div class="pickrow"><input type="color" class="wheadpick" value="${hex(headColorVal)}"><input class="hex wheadhex" value="${hex(headColorVal)}" spellcheck="false" maxlength="7"></div>`
@@ -1868,6 +1984,12 @@ function buildWingEditor() {
     fp.oninput = () => setTint(parseInt(fp.value.slice(1), 16), false);
     fp.onchange = () => setTint(parseInt(fp.value.slice(1), 16), true);
     fh.onchange = () => { const v = normHex(fh.value); if (v) setTint(parseInt(v.slice(1), 16), true); else fh.value = hex(s.floorTint); };
+    const ckp = el.querySelector('.wcheckpick'), ckh = el.querySelector('.wcheckhex');
+    const setChecker = (v, commit) => { ckp.value = hex(v); ckh.value = hex(v); applyMutate(sp => sp.checkerColor = v, commit); };
+    ckp.oninput = () => setChecker(parseInt(ckp.value.slice(1), 16), false);
+    ckp.onchange = () => setChecker(parseInt(ckp.value.slice(1), 16), true);
+    ckh.onchange = () => { const v = normHex(ckh.value); if (v) setChecker(parseInt(v.slice(1), 16), true); else ckh.value = hex(s.checkerColor != null ? s.checkerColor : 0x141414); };
+    el.querySelector('.wceilpat').onchange = (ev) => { applyMutate(sp => sp.ceilPattern = ev.target.value); buildWingEditor(); };
     el.querySelector('.wceil').onchange = (ev) => { applyMutate(sp => sp.ceilColor = parseInt(ev.target.value, 10)); buildWingEditor(); };
     const cp = el.querySelector('.wceilpick'), ch = el.querySelector('.wceilhex');
     const setCeil = (v, commit) => { cp.value = hex(v); ch.value = hex(v); ceilchip.style.background = hex(v); applyMutate(sp => sp.ceilColor = v, commit); };
@@ -1881,12 +2003,12 @@ function buildWingEditor() {
     hh.onchange = () => { const v = normHex(hh.value); if (v) setHead(parseInt(v.slice(1), 16), true); else hh.value = hex(headingColorFor(s)); };
     el.querySelector('[data-savetheme]').onclick = () => {
       const name = (prompt('Name this theme:', s.name + ' theme') || '').trim(); if (!name) return;
-      const t = { id: 'ct' + Date.now() + Math.floor(Math.random() * 1000), name, wallColor: s.wallColor, wallPattern: s.wallPattern || 'smooth', floorType: s.floorType, floorTint: s.floorTint != null ? s.floorTint : 0xffffff, ceilColor: s.ceilColor != null ? s.ceilColor : 0x101018 };
+      const t = { id: 'ct' + Date.now() + Math.floor(Math.random() * 1000), name, wallColor: s.wallColor, wallPattern: s.wallPattern || 'smooth', floorType: s.floorType, floorTint: s.floorTint != null ? s.floorTint : 0xffffff, checkerColor: s.checkerColor != null ? s.checkerColor : 0x141414, ceilColor: s.ceilColor != null ? s.ceilColor : 0x101018, ceilPattern: s.ceilPattern || 'flat' };
       customThemes.push(t); saveCustomThemes(); buildWingEditor(); toast('Theme saved: ' + t.name);
     };
     el.querySelector('.wcustomtheme')?.addEventListener('change', (ev) => {
       const t = customThemes.find(x => x.id === ev.target.value); if (!t) return;
-      applyMutate(sp => { sp.wallColor = t.wallColor; sp.wallPattern = t.wallPattern; sp.floorType = t.floorType; sp.floorTint = t.floorTint; sp.ceilColor = t.ceilColor; });
+      applyMutate(sp => { sp.wallColor = t.wallColor; sp.wallPattern = t.wallPattern; sp.floorType = t.floorType; sp.floorTint = t.floorTint; sp.checkerColor = t.checkerColor; sp.ceilColor = t.ceilColor; sp.ceilPattern = t.ceilPattern; });
       buildWingEditor(); toast('Theme "' + t.name + '" applied' + (applyAll ? ' to the whole museum' : ''));
     });
     el.querySelector('[data-deltheme]')?.addEventListener('click', () => {
@@ -1998,7 +2120,7 @@ function buildFromConfig(cfg) {
     let s;
     if (o.floorType) {
       // New format: independent floor/wall
-      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, ceilColor: o.ceilColor, headingColor: o.headingColor, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseHeadings: migrateShowcaseHeadings(o), showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
+      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, checkerColor: o.checkerColor, ceilColor: o.ceilColor, ceilPattern: o.ceilPattern, headingColor: o.headingColor, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseHeadings: migrateShowcaseHeadings(o), showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
     } else {
       // Old format: styleId only — convert to new format
       const preset = presetById(o.styleId);
@@ -2029,7 +2151,7 @@ async function boot() {
       return { id: a[0], type: a[1], name: a[2], floorType: preset.floor, wallColor: preset.wall, wallRoughness: preset.rough, wallMetalness: preset.metal, lightColor: preset.light, lightIntensity: preset.li, accent: preset.accent, x0: a[4], x1: a[5], z0: a[6], z1: a[7], sectionTitles: a[8] || { N: '', S: '', E: '', W: '' } };
     } else {
       // New format: [id, type, name, floorType, wallColor, wallRoughness, wallMetalness, lightColor, lightIntensity, accent, x0, x1, z0, z1, sectionTitles]
-      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' }, wallPattern: a[15], floorTint: a[16], showcaseScope: a[17] || 'all', showcaseHeadings: (a[18] && typeof a[18] === 'object') ? a[18] : (a[18] != null ? { N: a[18], S: a[18], E: a[18], W: a[18] } : undefined), showcaseWallColor: a[19], showcaseWallPattern: a[20], showcaseWallScopes: a[21], ceilColor: a[22], headingColor: a[23] };
+      return { id: a[0], type: a[1], name: a[2], floorType: a[3], wallColor: a[4], wallRoughness: a[5], wallMetalness: a[6], lightColor: a[7], lightIntensity: a[8], accent: a[9], x0: a[10], x1: a[11], z0: a[12], z1: a[13], sectionTitles: a[14] || { N: '', S: '', E: '', W: '' }, wallPattern: a[15], floorTint: a[16], showcaseScope: a[17] || 'all', showcaseHeadings: (a[18] && typeof a[18] === 'object') ? a[18] : (a[18] != null ? { N: a[18], S: a[18], E: a[18], W: a[18] } : undefined), showcaseWallColor: a[19], showcaseWallPattern: a[20], showcaseWallScopes: a[21], ceilColor: a[22], headingColor: a[23], checkerColor: a[24], ceilPattern: a[25] };
     }
   }), connections: share.c.map(a => ({ a: a[0], side: a[1], lo: a[2], hi: a[3], heading: a[4], headingColor: a[5] })), nextId: share.n, showSectionTitles: share.wt == null ? true : !!share.wt }; buildFromConfig(cfg); (share.t || []).forEach(([id, title]) => { const f = frameById.get(id); if (f) { f.title = title; drawPlate(f); } }); toast('Viewing a shared museum layout — add your own photos to fill it'); }
   else {
