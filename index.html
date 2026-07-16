@@ -1190,8 +1190,13 @@ function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.dead = true; 
 // scene, and with several rooms' worth loaded at once it's what pushes iOS Safari into killing the
 // tab under memory pressure (looks like the app "crashing back to the menu" since Safari just reloads
 // the page). Downscale to IMAGE_MAX_DIM before upload, same idea as parseGif's maxDim for GIFs — the
-// lightbox still shows the original full-res blob via f.srcURL, so nothing crisp is lost.
-const IMAGE_MAX_DIM = 2048;
+// lightbox still shows the original full-res blob via f.srcURL, so nothing crisp is lost. 1024 (not
+// 2048) because every filled frame in the whole museum stays GPU-resident for the whole session (see
+// boot()) — a handful of fully-hung rooms at 2048² was still ~20MB+ per texture with mipmaps, easily
+// several hundred MB total and still enough to crash on iOS. A picture frame in-world only ever
+// occupies a few hundred pixels on screen at once, so 1024 loses nothing perceptible while cutting
+// that per-texture cost by ~4x.
+const IMAGE_MAX_DIM = 1024;
 // Photos decode one at a time, for the same reason GIFs already do below (see gifQueue): at boot,
 // every filled frame across the whole museum starts loading as soon as it's created, and the browser
 // decodes each image to its FULL original resolution before this function ever gets a chance to
@@ -1298,7 +1303,15 @@ function parseGif(buf, maxDim = 512) {
   const scx = _gifSrc.getContext('2d'); const dcx = _gifDst.getContext('2d', { willReadFrequently: true });
   _gifSrc.width = W; _gifSrc.height = H; _gifDst.width = ow; _gifDst.height = oh;
   const frames = []; const canvas = new Uint8ClampedArray(W * H * 4); const shared = new ImageData(canvas, W, H); let gce = null, saved = null;
+  // Every decoded frame is kept resident for the life of the app (see decodeGifNow) — the per-frame
+  // spatial downscale above bounds the size of EACH frame, but nothing bounded how many frames could
+  // pile up. A long or high-framerate source GIF (common for ones pulled from video) could still
+  // retain hundreds of frames at once — 150 frames at 512² RGBA is already ~150MB for one GIF. Once
+  // the frame cap is hit, stop retaining new distinct frames and just fold their delay into the last
+  // one kept, so an oversized GIF freezes near its end instead of growing memory without limit.
+  const MAX_GIF_FRAMES = 150;
   const commit = (delay) => { // snapshot current composite, downscaled, as a retained ImageData frame
+    if (frames.length >= MAX_GIF_FRAMES) { if (frames.length) frames[frames.length - 1].dur += delay; return; }
     if (scale < 1) { scx.putImageData(shared, 0, 0); dcx.drawImage(_gifSrc, 0, 0, W, H, 0, 0, ow, oh); frames.push({ data: dcx.getImageData(0, 0, ow, oh), dur: delay }); }
     else frames.push({ data: new ImageData(canvas.slice(), W, H), dur: delay });
   };
