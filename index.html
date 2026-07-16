@@ -50,6 +50,10 @@
   .wing .whereami { display: none; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: #ffd27a; }
   .wing.current .whereami { display: inline; }
   .wing .wtop { display: flex; gap: 6px; align-items: center; } .wing .kind { font-size: 10px; padding: 2px 6px; border-radius: 5px; background: rgba(255,210,122,.18); color: #ffd27a; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+  .wing .wtoggle { flex: none; background: transparent; border: none; color: #9a9aa6; font-size: 12px; line-height: 1; padding: 4px; cursor: pointer; transition: transform .15s; }
+  .wing.collapsed .wtoggle { transform: rotate(-90deg); }
+  .wing .wbody { display: flex; flex-direction: column; gap: 6px; }
+  .wing.collapsed .wbody { display: none; }
   .wing input.wname { flex: 1; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px 8px; font: 600 13px inherit; min-width: 0; }
   .wing select { background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.12); color: #fff; border-radius: 7px; padding: 7px; font: 500 12.5px inherit; flex: 1; }
   .wing .wbtns { display: flex; gap: 6px; } .wing .wbtns button { flex: 1; cursor: pointer; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.06); color: #dcdce4; font: 600 12px inherit; padding: 7px; border-radius: 7px; } .wing .wbtns button:hover { background: rgba(255,255,255,.14); } .wing .wbtns button.has { border-color: #ffc24d55; color: #ffd27a; } .wing .wbtns button.del { border-color: #ff6b6b55; color: #ff9a9a; } .wing .wbtns button.del:hover { background: rgba(255,107,107,.16); }
@@ -883,16 +887,16 @@ function buildDoorPortal(c) { const a = spaces.get(c.a); if (!a) return []; cons
   for (const m of ms) { m.userData.doorConn = c; wallMeshes.push(m); }
   return ms;
 }
-// The editable heading painted in the header band directly above a doorway (as opposed to a wall's
-// own side-wide heading) — one mesh per side of the opening so it reads correctly walking through
-// from either room. Skipped for a seamless hall-to-hall extension, which has no header band at all.
-// Sits in its own band ABOVE the room's own wall heading (positionSectionTitle, centred at y=3.78,
-// whose tallest possible case tops out at 3.78+0.525=4.305) and below the ceiling's underside
-// (H-0.15=4.85), so a doorway heading and that wall's own heading can never visually overlap
-// regardless of wall length, doorway width, or where the doorway sits along the wall.
+// The editable heading painted directly above a doorway (as opposed to a wall's own side-wide
+// heading) — one mesh per side of the opening so it reads correctly walking through from either
+// room. Skipped for a seamless hall-to-hall extension, which has no header band at all. Uses the
+// exact same size formula and vertical slot (y=3.78) as positionSectionTitle so a doorway heading
+// and a wall heading read as the same kind of thing — since the two are mutually exclusive per wall
+// side (see setWallHeading/setDoorHeading: setting one clears the other), they're never both visible
+// on the same side at once, so sharing the slot can't cause them to run into each other.
 function positionDoorHeading(s, side, lo, hi, m) {
-  const mid = (lo + hi) / 2, len = hi - lo, h = Math.min(0.32, Math.max(0.18, (len - 0.6) / 6)); m.scale.set(h * 3, h, 1);
-  const off = T / 2 + 0.06, y = 4.58;
+  const mid = (lo + hi) / 2, len = hi - lo, h = Math.min(1.05, Math.max(0.6, (len - 0.6) / 4)); m.scale.set(h * 4, h, 1);
+  const off = T / 2 + 0.06, y = 3.78;
   if (side === 'N') { m.position.set(mid, y, s.z0 + off); m.rotation.y = 0; }
   else if (side === 'S') { m.position.set(mid, y, s.z1 - off); m.rotation.y = Math.PI; }
   else if (side === 'E') { m.position.set(s.x1 - off, y, mid); m.rotation.y = -Math.PI / 2; }
@@ -918,8 +922,15 @@ function updateDoorHeading(c) {
 function setDoorHeading(c, text) {
   if (!c) return; const prev = c.heading || '', next = text.trim(); if (prev === next) return;
   c.heading = next; if (next && !showSectionTitles) { showSectionTitles = true; const cb = document.getElementById('sectionTitlesOn'); if (cb) cb.checked = true; spaces.forEach(updateSectionTitles); spaces.forEach(updateShowcaseHeading); connections.forEach(updateDoorHeading); } else updateDoorHeading(c);
+  // A doorway heading shares its header band with that wall's own heading (see positionDoorHeading) —
+  // only one can show per side, so setting this one clears whichever wall heading(s) it would
+  // otherwise run into, on both rooms the doorway connects.
+  const clearedWalls = [];
+  if (next) { const bId = spaceOnOtherSide(c); for (const [sp, side] of [[spaces.get(c.a), c.side], [bId ? spaces.get(bId) : null, OPP[c.side]]]) {
+    if (sp && (sp.sectionTitles?.[side] || '').trim()) { clearedWalls.push([sp, side, sp.sectionTitles[side]]); sp.sectionTitles[side] = ''; updateSectionTitles(sp); } } }
   saveConfig();
-  pushUndo('doorway heading', () => { c.heading = prev; updateDoorHeading(c); saveConfig(); });
+  if (clearedWalls.length) toast('Doorway heading set — the wall heading it overlapped was removed');
+  pushUndo('doorway heading', () => { c.heading = prev; updateDoorHeading(c); for (const [sp, side, h] of clearedWalls) { sp.sectionTitles[side] = h; updateSectionTitles(sp); } saveConfig(); });
 }
 function titleDoorway(c) { if (!c) return; if (document.pointerLockElement === canvas) document.exitPointerLock(); setTimeout(() => { const t = prompt('Heading over this doorway (leave blank to remove):', doorHeadingText(c)); if (t !== null) setDoorHeading(c, t); if (!isTouch && started) canvas.requestPointerLock?.(); }, 60); }
 // A hall extended straight off the end of another hall — the opening spans the full shared wall —
@@ -1508,7 +1519,7 @@ function showcasePool(scope) {
 function clearStandaloneFrame(f) { f.mat.map = placeholderTex(); f.mat.needsUpdate = true; sizeFrame(f, 1.7, 1.2); f.filled = false; f.title = ''; f.srcURL = null; f.video = null; f.gif = null; drawPlate(f); }
 function frameAspect(fr) { if (fr.video) return (fr.video.videoWidth || 16) / (fr.video.videoHeight || 9); if (fr.gif) return (fr.gif.w || 1) / (fr.gif.h || 1); const img = fr.mat.map?.image; return img && img.width ? img.width / img.height : 16 / 9; }
 function showcaseApply(f, src) {
-  if (!src) { if (f.filled) clearStandaloneFrame(f); return; }
+  if (!src) { if (f.filled) clearStandaloneFrame(f); if (lightboxOpen && lbFrame === f) closeLightbox(); return; }
   if (f.srcURL === src.srcURL) return; // already mirroring this piece — skip the reload/flicker
   // Mirror src's already-decoded texture/video/gif directly rather than re-decoding it from its URL
   // — src is already playing/decoded live elsewhere in the museum, and redoing that from scratch
@@ -1521,6 +1532,8 @@ function showcaseApply(f, src) {
   f.mat.map = src.mat.map; f.mat.needsUpdate = true;
   fitAspect(f, frameAspect(src));
   drawPlate(f);
+  // Keep an open "Watch" lightbox live as the showcase shuffles onto new media.
+  if (lightboxOpen && lbFrame === f) openLightbox(f);
 }
 // Refresh the showcase from its current scope. Any wall WITHOUT its own override shares one random
 // pick (all showing the same piece together, as if showcasing that one item); a wall with its own
@@ -1626,8 +1639,13 @@ function openLightbox(f) {
   if (f.video) { el = document.createElement('video'); el.src = f.srcURL; el.loop = true; el.controls = true; el.autoplay = true; el.playsInline = true; setAudibleVideo(null); }
   else { el = document.createElement('img'); el.src = f.srcURL; }
   el.className = 'lbmedia'; stage.appendChild(el);
-  const sp = frameSpace(f); document.getElementById('lbTitle').textContent = f.title || 'Untitled';
-  document.getElementById('lbMeta').textContent = (f.video ? 'Video' : f.gif ? 'GIF' : 'Photo') + (sp ? ' · ' + sp.name : '');
+  // A showcase mirror doesn't own its media (see showcaseApply) — Title/Paste/Remove/Hall/Wing all
+  // assume a real hung frame, and Remove in particular would dispose the shared texture/gif out from
+  // under whatever frame actually owns it. Hide those actions for a showcase frame; Watch only looks.
+  const isShowcase = !!f.art.userData.showcase;
+  document.getElementById('lbActions').style.display = isShowcase ? 'none' : '';
+  const sp = isShowcase ? null : frameSpace(f); document.getElementById('lbTitle').textContent = f.title || 'Untitled';
+  document.getElementById('lbMeta').textContent = (f.video ? 'Video' : f.gif ? 'GIF' : 'Photo') + (sp ? ' · ' + sp.name : isShowcase ? ' · Showcase' : '');
   document.getElementById('lightbox').classList.add('open'); lightboxOpen = true;
   if (document.pointerLockElement) document.exitPointerLock();
 }
@@ -1644,9 +1662,18 @@ const toggleMute = () => { const f = lookingAt; if (!f?.video) return; if (audib
 function titleFrame() { const f = lookingAt; if (!f) return; const wasLocked = document.pointerLockElement === canvas; if (wasLocked) document.exitPointerLock(); setTimeout(async () => { const t = prompt('Title for this frame:', f.title || ''); if (t !== null) { f.title = t.trim(); drawPlate(f); const rec = await DB.get(f.id); if (rec) { rec.title = f.title; DB.put(rec); } } if (wasLocked && !isTouch) canvas.requestPointerLock?.(); }, 60); }
 /* ===== wall headings — added / edited / removed by looking at the wall ===== */
 function wallHeadingText(lw) { const s = lw && spaces.get(lw.id); return s ? (s.sectionTitles?.[lw.side] || '') : ''; }
+// Doorways on this side of this space that currently have a heading set — used to find what a new
+// wall heading would run into (see setWallHeading below).
+function doorsOnSide(spaceId, side) { return connections.filter(c => (c.a === spaceId && c.side === side) || (spaceOnOtherSide(c) === spaceId && OPP[c.side] === side)); }
 function setWallHeading(lw, text) { const s = spaces.get(lw.id); if (!s) return; s.sectionTitles = s.sectionTitles || { N: '', S: '', E: '', W: '' }; const side = lw.side, prev = s.sectionTitles[side] || '', next = text.trim(); if (prev === next) return;
-  s.sectionTitles[side] = next; if (next && !showSectionTitles) { showSectionTitles = true; const cb = document.getElementById('sectionTitlesOn'); if (cb) cb.checked = true; spaces.forEach(updateSectionTitles); } else updateSectionTitles(s); saveConfig();
-  pushUndo('wall heading', () => { const sp = spaces.get(lw.id); if (!sp) return; sp.sectionTitles = sp.sectionTitles || { N: '', S: '', E: '', W: '' }; sp.sectionTitles[side] = prev; updateSectionTitles(sp); saveConfig(); }); }
+  s.sectionTitles[side] = next; if (next && !showSectionTitles) { showSectionTitles = true; const cb = document.getElementById('sectionTitlesOn'); if (cb) cb.checked = true; spaces.forEach(updateSectionTitles); } else updateSectionTitles(s);
+  // Same header band as a doorway heading on this side (see positionDoorHeading) — setting this one
+  // clears any doorway heading(s) it would otherwise run into.
+  const clearedDoors = [];
+  if (next) for (const c of doorsOnSide(s.id, side)) { if ((c.heading || '').trim()) { clearedDoors.push([c, c.heading]); c.heading = ''; updateDoorHeading(c); } }
+  saveConfig();
+  if (clearedDoors.length) toast('Wall heading set — the doorway heading it overlapped was removed');
+  pushUndo('wall heading', () => { const sp = spaces.get(lw.id); if (!sp) return; sp.sectionTitles = sp.sectionTitles || { N: '', S: '', E: '', W: '' }; sp.sectionTitles[side] = prev; updateSectionTitles(sp); for (const [c, h] of clearedDoors) { c.heading = h; updateDoorHeading(c); } saveConfig(); }); }
 function titleWall(lw = lookingWall) { if (!lw || !spaces.get(lw.id)) return; if (document.pointerLockElement === canvas) document.exitPointerLock(); setTimeout(() => { const t = prompt('Heading for this wall (leave blank to remove):', wallHeadingText(lw)); if (t !== null) setWallHeading(lw, t); if (!isTouch && started) canvas.requestPointerLock?.(); }, 60); }
 function titleShowcase(side, s = mainWing()) { if (!s || !side) return; if (document.pointerLockElement === canvas) document.exitPointerLock(); setTimeout(() => { const t = prompt('Wall header for the ' + SIDE_NAME[side] + ' showcase wall (leave blank to remove):', showcaseHeadingText(s, side)); if (t !== null) { s.showcaseHeadings = s.showcaseHeadings || { N: 'Showcase', S: 'Showcase', E: 'Showcase', W: 'Showcase' }; s.showcaseHeadings[side] = t.trim(); updateShowcaseHeading(s); saveConfig(); } if (!isTouch && started) canvas.requestPointerLock?.(); }, 60); }
 
@@ -1694,6 +1721,10 @@ function openCtxMenu(kind, target) {
     ctxTarget = { kind: 'showcase', id: s.id, side };
     const optsEl = document.getElementById('ctxopts'); optsEl.innerHTML = '';
     document.getElementById('ctxtitle').textContent = 'Showcase' + (side ? ' · ' + SIDE_NAME[side] + ' wall' : '');
+    // Open this wall's current piece up close, in the same lightbox as any hung frame. Kept live: the
+    // lightbox tracks lbFrame === this showcase's standalone frame, so as cycleShowcase() rotates it
+    // onto new media every 7s, showcaseApply() below refreshes the open lightbox in place too.
+    if (side && s.showcaseFrames?.[side]?.filled) ctxAddBtn(optsEl, '▶ Watch', 'accent', () => { const f = s.showcaseFrames[side]; ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; openLightbox(f); });
     if (side) ctxAddBtn(optsEl, '✎ Edit wall header', '', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleShowcase(side, s); });
     // Default to whichever mode already matches this wall's current state, so opening the menu never
     // silently changes anything until a pick is actually made.
@@ -1914,8 +1945,13 @@ const CEIL_PATTERNS = [
   { name: 'Industrial', value: 'industrial' },
   { name: 'Industrial Farmhouse', value: 'farmhouse' },
 ];
+// Which rooms/halls/wings are expanded in the list — kept outside buildWingEditor since it fully
+// rebuilds the DOM on every change, so this is the only thing that survives a rebuild. Defaults to
+// just the room the player is currently in, once, on first render.
+const wingExpanded = new Set(); let wingExpandedInit = false;
 function buildWingEditor() {
   const mw0 = mainWing(); const showcaseOnEl = document.getElementById('showcaseOn'); if (showcaseOnEl) showcaseOnEl.checked = !!mw0 && mw0.showcaseEnabled !== false;
+  if (!wingExpandedInit) { wingExpandedInit = true; const cw = currentId(); if (cw) wingExpanded.add(cw); }
   const host = document.getElementById('wings'); host.innerHTML = '';
   sortedSpaces().forEach((s) => {
     const presetOpts = PRESETS.map(o => `<option value="${o.id}"${o.floor === s.floorType && o.wall === s.wallColor ? ' selected' : ''}>${o.name}</option>`).join('');
@@ -1952,8 +1988,9 @@ function buildWingEditor() {
     const checkerColorVal = s.checkerColor != null ? s.checkerColor : 0x141414;
     const headColorVal = headingColorFor(s);
     const customThemeOpts = customThemes.length ? `<option value="">Apply a saved theme…</option>${customThemes.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}` : '';
-    const el = document.createElement('div'); el.className = 'wing' + (s.id === currentId() ? ' current' : ''); el.dataset.id = s.id;
-    el.innerHTML = `<div class="wtop"><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"><span class="whereami">📍 Here</span></div>`
+    const el = document.createElement('div'); el.className = 'wing' + (s.id === currentId() ? ' current' : '') + (wingExpanded.has(s.id) ? '' : ' collapsed'); el.dataset.id = s.id;
+    el.innerHTML = `<div class="wtop"><button type="button" class="wtoggle" aria-label="Expand or collapse">▾</button><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"><span class="whereami">📍 Here</span></div>`
+      + `<div class="wbody">`
       + showcaseBlock
       + `<div class="musicrow" style="margin-top:6px"><label class="switch"><input type="checkbox" class="wapplyall"><span></span></label><span>Apply changes below to whole museum</span></div>`
       + `<div style="${LBL};margin-top:2px">Preset themes</div><select class="wpreset">${presetOpts}</select>`
@@ -1972,7 +2009,9 @@ function buildWingEditor() {
       + `<div style="${LBL};margin-top:6px">Custom themes</div>`
       + (customThemes.length ? `<select class="wcustomtheme">${customThemeOpts}</select>` : `<div class="lbl" style="margin-top:0;color:#6a6a76">Save this room's floor, wall &amp; ceiling as a reusable theme.</div>`)
       + `<div class="wbtns" style="margin-top:6px"><button data-savetheme>💾 Save this room's theme</button>${customThemes.length ? '<button data-deltheme class="del">🗑 Delete selected</button>' : ''}</div>`
-      + `<div class="wbtns" style="margin-top:9px"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`;
+      + `<div class="wbtns" style="margin-top:9px"><button data-go>Go to</button><button data-mus class="${hasMusic ? 'has' : ''}">${hasMusic ? '🎵 Track' : '♪ Music'}</button>${hasMusic ? '<button data-musx>✕</button>' : ''}</div><div class="wbtns"><button data-del class="del">🗑 Delete this ${s.type}</button></div>`
+      + `</div>`;
+    el.querySelector('.wtoggle').onclick = () => { const collapsed = el.classList.toggle('collapsed'); if (collapsed) wingExpanded.delete(s.id); else wingExpanded.add(s.id); };
     let applyAll = false;
     el.querySelector('.wapplyall').onchange = (ev) => { applyAll = ev.target.checked; };
     const applyMutate = (mutate, commit = true) => { if (applyAll) { spaces.forEach(mutate); spaces.forEach(sp => applyTheme(sp, false)); if (commit) saveConfig(); } else { mutate(s); applyTheme(s, commit); } };
