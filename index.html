@@ -1791,19 +1791,19 @@ function openCtxMenu(kind, target) {
     const has = doorHeadingText(c);
     ctxAddBtn(optsEl, has ? '✎ Edit heading' : '＋ Add heading over this doorway', 'accent', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleDoorway(c); });
     if (has) ctxAddBtn(optsEl, '⌫ Remove heading', 'warn', () => { setDoorHeading(c, ''); closeCtxMenu(); toast('Heading removed'); });
-    // A doorway sits between two rooms, so "the room" it should match is ambiguous by default — the
-    // OLD behaviour deferred to whichever room happened to be connection's fixed "A" side (an
-    // implementation detail from when the doorway was first built), which could easily be the room on
-    // the far side of the door from wherever the player is actually standing right now. "Match room"
-    // instead snapshots whichever room the player is CURRENTLY standing in at the moment they click —
-    // a one-time copy of its live colour/font, not a link back to that original fixed side.
-    const nearRoom = () => spaces.get(currentId()) || spaces.get(c.a);
-    const fallback = nearRoom();
-    ctxAddColorPicker(optsEl, 'Heading colour', c.headingColor != null ? c.headingColor : headingColorFor(fallback), (v, commit) => { c.headingColor = v; updateDoorHeading(c); if (commit) saveConfig(); });
-    ctxAddBtn(optsEl, '↺ Match room colour', '', () => { c.headingColor = headingColorFor(nearRoom()); updateDoorHeading(c); saveConfig(); closeCtxMenu(); toast("Doorway heading now matches this room's colour"); });
+    // A doorway heading functions as a label for the gallery you're about to WALK INTO — the room on
+    // the FAR side of the doorway from wherever you're currently standing, not the one you're leaving.
+    // "Match room" copies that far room's live wall colour (what you're being shown a preview of, not
+    // its heading/accent colour) as a one-time snapshot, not a link back to some fixed original side.
+    const bId = spaceOnOtherSide(c);
+    const farRoom = () => { const near = currentId(); if (near === c.a) return spaces.get(bId); if (near === bId) return spaces.get(c.a); return spaces.get(bId) || spaces.get(c.a); };
+    const fallback = farRoom();
+    const fallbackColor = fallback ? fallback.wallColor : headingColorFor(fallback);
+    ctxAddColorPicker(optsEl, 'Heading colour', c.headingColor != null ? c.headingColor : fallbackColor, (v, commit) => { c.headingColor = v; updateDoorHeading(c); if (commit) saveConfig(); });
+    ctxAddBtn(optsEl, '↺ Match room colour', '', () => { const r = farRoom(); c.headingColor = r ? r.wallColor : headingColorFor(r); updateDoorHeading(c); saveConfig(); closeCtxMenu(); toast('Doorway heading now matches the wall colour on the other side'); });
     const curDoorFont = c.headingFont != null ? c.headingFont : headingFontFor(fallback);
     ctxAddSwatches(optsEl, 'Heading font', HEADING_FONTS.map(fo => ({ label: fo.name, value: fo.value, on: fo.value === curDoorFont })), true, (fo) => { c.headingFont = fo.value; updateDoorHeading(c); saveConfig(); toast('Doorway heading font set'); });
-    ctxAddBtn(optsEl, '↺ Match room font', '', () => { c.headingFont = headingFontFor(nearRoom()); updateDoorHeading(c); saveConfig(); closeCtxMenu(); toast("Doorway heading now matches this room's font"); });
+    ctxAddBtn(optsEl, '↺ Match room font', '', () => { c.headingFont = headingFontFor(farRoom()); updateDoorHeading(c); saveConfig(); closeCtxMenu(); toast('Doorway heading now matches the font on the other side'); });
     ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
     if (document.pointerLockElement) document.exitPointerLock();
     return;
