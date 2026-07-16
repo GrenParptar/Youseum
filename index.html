@@ -2211,12 +2211,34 @@ function updateVideoCulling() { if (!frames.some(f => f.video)) return; camera.u
     if (!inView) for (const sf of scFrames) if (sf.video === v && pointInView(sf.group.position)) { inView = true; break; }
     if (inView) { if (v._culled) { v._culled = false; v.play().catch(() => {}); } }
     else if (!v.paused) { v._culled = true; v.pause(); } } }
+// Every room/hall/wing keeps its own PointLight (plus up to 4 SpotLights for a room) always in the
+// scene, regardless of whether the player is anywhere near it — a museum with several rooms built out
+// can easily rack up dozens of simultaneously "active" lights. Three.js evaluates every active light
+// per fragment for the WHOLE visible scene, not just objects that light could plausibly reach, so that
+// cost grows with total light count no matter how far away most of them are. Toggling .visible off for
+// distant spaces' lights removes them from that per-fragment cost entirely. Uses a wide hysteresis band
+// (off beyond 26, back on within 20) rather than one cutoff so a light doesn't flicker on/off — and
+// force a three.js shader recompile — from small movements right at a single boundary distance.
+const LIGHT_CULL_OFF = 26, LIGHT_CULL_ON = 20;
+const lightCullPos = new THREE.Vector3();
+function updateLightCulling() {
+  spaces.forEach(s => {
+    // A resized/extended room or a long hall can be bigger than the cull radius end to end, so
+    // distance-from-centre alone could dim the room the player is actually standing in — the room
+    // they're currently in stays lit unconditionally, distance-culling only applies to every other one.
+    let on;
+    if (s.id === lastId) on = true;
+    else { lightCullPos.set(s.cx, 1.7, s.cz); const d = camera.position.distanceTo(lightCullPos); const was = s.point.visible; on = was ? d < LIGHT_CULL_OFF : d < LIGHT_CULL_ON; }
+    if (on !== s.point.visible) { s.point.visible = on; for (const sp of s.spots) sp.visible = on; }
+  });
+}
 function animate() { requestAnimationFrame(animate); if (glContextLost) return; const dt = Math.min(clock.getDelta(), 0.05); camera.rotation.set(pitch, yaw, 0);
   if (inTour && !paused && !lightboxOpen && !ctxOpen) { if (GT.active) GT.update(dt); else { let ix = 0, iz = 0; if (keys['KeyW']) iz += 1; if (keys['KeyS']) iz -= 1; if (keys['KeyD']) ix += 1; if (keys['KeyA']) ix -= 1; ix += joyX; iz -= joyY; const mag = Math.hypot(ix, iz); if (mag > 1) { ix /= mag; iz /= mag; } const speed = 4.4 * ((keys['ShiftLeft'] || keys['ShiftRight'] || touchRun) ? 1.9 : 1); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize(); right.crossVectors(fwd, up).normalize(); const tx = (fwd.x * iz + right.x * ix) * speed, tz = (fwd.z * iz + right.z * ix) * speed; vel.x += (tx - vel.x) * Math.min(1, dt * 12); vel.z += (tz - vel.z) * Math.min(1, dt * 12); for (let st = 0; st < 3; st++) { camera.position.x += vel.x * dt / 3; camera.position.z += vel.z * dt / 3; collide(camera.position); } }
     camera.position.y = 1.7; updateLook(); const k = currentId(); if (k !== lastId) { lastId = k; const s = spaces.get(k); if (s) document.getElementById('roomlabel').textContent = s.name; Music.resolve(); updateWingHighlight(); if (addScope === 'room') updateCount(); } }
   if (++mapTick % 3 === 0 && (inTour || paused)) drawMap();
   updateGifs(dt);
   if (mapTick % 5 === 0) updateVideoCulling();
+  if (mapTick % 7 === 0) updateLightCulling();
   (composer || renderer).render(scene, camera);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer?.setSize(innerWidth, innerHeight); });
