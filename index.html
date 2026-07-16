@@ -45,6 +45,12 @@
   .musicrow { display: flex; align-items: center; gap: 10px; font-size: 14px; color: #d6d6df; }
   .switch { position: relative; width: 44px; height: 26px; } .switch input { display: none; } .switch span { position: absolute; inset: 0; background: #3a3a46; border-radius: 999px; transition: .2s; cursor: pointer; } .switch span::after { content:""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: .2s; }
   .switch input:checked + span { background: #ffc24d; } .switch input:checked + span::after { transform: translateX(18px); } input[type=range] { width: 100%; accent-color: #ffc24d; } #count { font-size: 12.5px; color: #9a9aa6; }
+  details.roomlist { border: 1px solid rgba(255,255,255,.1); border-radius: 10px; background: rgba(255,255,255,.03); }
+  details.roomlist > summary { cursor: pointer; padding: 10px 12px; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: #d6d6df; font-weight: 700; list-style: none; display: flex; align-items: center; justify-content: space-between; }
+  details.roomlist > summary::-webkit-details-marker { display: none; }
+  details.roomlist > summary .arrow { opacity: .6; font-size: 11px; transition: transform .15s; }
+  details.roomlist[open] > summary .arrow { transform: rotate(180deg); }
+  details.roomlist > .dropbody { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; }
   .wing { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 10px; padding: 9px; display: flex; flex-direction: column; gap: 6px; }
   .wing.current { border-color: #ffc24d; background: rgba(255,194,77,.09); box-shadow: 0 0 0 1px rgba(255,194,77,.35) inset; }
   .wing .whereami { display: none; font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: #ffd27a; }
@@ -180,10 +186,14 @@
       <div class="lbl" style="margin-top:2px;color:#6a6a76">A small case in the main room that automatically cycles through your photos. Turn it on to configure what it shows, in the main room's card below.</div>
     </div>
     <div class="grp">
-      <div class="lbl">Rooms &amp; halls — name, theme &amp; music</div>
-      <div class="musicrow" style="margin-bottom:2px"><label class="switch"><input type="checkbox" id="sectionTitlesOn" checked><span></span></label><span>Show wall headings (large titles)</span></div>
-      <div id="wings"></div>
-      <div class="lbl" style="margin-top:2px;color:#6a6a76">Build more by facing a wall: <b style="color:#9a9aa6">left-click for a hall, right-click for a wing</b> (touch: tap USE for wall options — hall, wing, extend, heading). On desktop, press <b style="color:#9a9aa6">T</b> to add or edit a wall heading, <b style="color:#9a9aa6">⌫</b> to remove it.</div>
+      <details class="roomlist" id="roomlistDetails" open>
+        <summary>Room list<span class="arrow">▾</span></summary>
+        <div class="dropbody">
+          <div class="musicrow" style="margin-bottom:2px"><label class="switch"><input type="checkbox" id="sectionTitlesOn" checked><span></span></label><span>Show wall headings (large titles)</span></div>
+          <div id="wings"></div>
+          <div class="lbl" style="margin-top:2px;color:#6a6a76">Build more by facing a wall: <b style="color:#9a9aa6">left-click for a hall, right-click for a wing</b> (touch: tap USE for wall options — hall, wing, extend, heading). On desktop, press <b style="color:#9a9aa6">T</b> to add or edit a wall heading, <b style="color:#9a9aa6">⌫</b> to remove it.</div>
+        </div>
+      </details>
     </div>
     <div class="grp">
       <div class="lbl">Your gallery</div>
@@ -537,7 +547,19 @@ function normHex(v) { v = (v || '').trim(); if (v[0] !== '#') v = '#' + v; retur
 function headingColorFor(s) { if (!s) return 0xffcf95; return s.headingColor != null ? s.headingColor : s.accent; }
 // Wall-section heading: a large title above the media. Uses a dark outline + shadow so the
 // accent-coloured text stays legible against both bright and dark gallery walls.
-function makeHeadingTex(label, accent) { const W = 2048, Hc = 512, maxW = W - 160; const c = document.createElement('canvas'); c.width = W; c.height = Hc; const x = c.getContext('2d'); x.clearRect(0, 0, W, Hc); const txt = (label || '').toUpperCase(); x.textAlign = 'center'; x.textBaseline = 'middle'; let fs = 300; x.font = `700 ${fs}px Georgia, serif`; const tw = x.measureText(txt).width; if (tw > maxW) { fs = Math.max(70, Math.floor(fs * maxW / tw)); x.font = `700 ${fs}px Georgia, serif`; } x.lineJoin = 'round'; x.lineWidth = Math.max(10, fs * 0.1); x.strokeStyle = 'rgba(8,7,4,.72)'; x.strokeText(txt, W / 2, Hc / 2 + 6); x.shadowColor = 'rgba(0,0,0,.5)'; x.shadowBlur = 18; x.shadowOffsetY = 5; x.fillStyle = hex(accent); x.fillText(txt, W / 2, Hc / 2 + 6); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; }
+// Web-safe fonts only — these render straight from canvas with no webfont fetch/FOUT to worry about.
+const HEADING_FONTS = [
+  { name: 'Georgia (serif)', value: 'Georgia, serif' },
+  { name: 'Times New Roman', value: '"Times New Roman", Times, serif' },
+  { name: 'Palatino', value: 'Palatino, "Palatino Linotype", serif' },
+  { name: 'Helvetica (sans)', value: 'Helvetica, Arial, sans-serif' },
+  { name: 'Trebuchet (sans)', value: '"Trebuchet MS", sans-serif' },
+  { name: 'Futura / Century Gothic', value: '"Century Gothic", "Futura", sans-serif' },
+  { name: 'Courier (mono)', value: '"Courier New", Courier, monospace' },
+  { name: 'Impact (display)', value: 'Impact, "Arial Narrow Bold", sans-serif' },
+];
+function headingFontFor(s) { return (s && s.headingFont) || HEADING_FONTS[0].value; }
+function makeHeadingTex(label, accent, font = HEADING_FONTS[0].value) { const W = 2048, Hc = 512, maxW = W - 160; const c = document.createElement('canvas'); c.width = W; c.height = Hc; const x = c.getContext('2d'); x.clearRect(0, 0, W, Hc); const txt = (label || '').toUpperCase(); x.textAlign = 'center'; x.textBaseline = 'middle'; let fs = 300; x.font = `700 ${fs}px ${font}`; const tw = x.measureText(txt).width; if (tw > maxW) { fs = Math.max(70, Math.floor(fs * maxW / tw)); x.font = `700 ${fs}px ${font}`; } x.lineJoin = 'round'; x.lineWidth = Math.max(10, fs * 0.1); x.strokeStyle = 'rgba(8,7,4,.72)'; x.strokeText(txt, W / 2, Hc / 2 + 6); x.shadowColor = 'rgba(0,0,0,.5)'; x.shadowBlur = 18; x.shadowOffsetY = 5; x.fillStyle = hex(accent); x.fillText(txt, W / 2, Hc / 2 + 6); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; }
 function placeholderTex() { const c = document.createElement('canvas'); c.width = 512; c.height = 384; const x = c.getContext('2d'); x.fillStyle = '#3b3b45'; x.fillRect(0, 0, 512, 384); x.strokeStyle = '#5c5c6a'; x.lineWidth = 4; x.setLineDash([14, 12]); x.strokeRect(22, 22, 468, 340); x.setLineDash([]); x.textAlign = 'center'; x.fillStyle = '#8e8e9c'; x.font = '600 30px system-ui'; x.fillText('Empty frame', 256, 180); x.font = '20px system-ui'; x.fillStyle = '#74747f'; x.fillText('add a photo or video', 256, 218); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; }
 function makePlate() { const c = document.createElement('canvas'); c.width = 512; c.height = 110; const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace; return { canvas: c, ctx: c.getContext('2d'), tex: tx }; }
 function roundRect(x, a, b, w, h, r) { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); }
@@ -588,7 +610,7 @@ function positionSectionTitle(s, side, m) {
 }
 function updateSectionTitles(s) {
   for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (!m) continue; const txt = (s.sectionTitles?.[sd] || '').trim();
-    m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, headingColorFor(s)); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+    m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, headingColorFor(s), headingFontFor(s)); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
 }
 // A point light of fixed intensity blows out narrow halls (surfaces sit close to it) while looking
 // right in room-sized wings. Scale intensity by floor area so a hall matches a wing's brightness
@@ -612,7 +634,7 @@ function buildSpaceBase(s) {
   s.point = new THREE.PointLight(s.lightColor, spaceLightIntensity(s), 30, 2); s.point.position.set(cx, H - 0.5, cz); scene.add(s.point);
   s.spots = []; if (!LITE && s.type === 'room') for (const a of [['z', -1], ['z', 1], ['x', -1], ['x', 1]]) { const sp = new THREE.SpotLight(s.lightColor, 9, 15, 0.7, 0.6, 1.2); sp.position.set(cx + (a[0] === 'x' ? a[1] * 2.2 : 0), H - 0.4, cz + (a[0] === 'z' ? a[1] * 2.2 : 0)); sp.target.position.set(cx + (a[0] === 'x' ? a[1] * w / 2 : 0), 1.7, cz + (a[0] === 'z' ? a[1] * d / 2 : 0)); scene.add(sp, sp.target); s.spots.push(sp); }
   s.sectionTitles = s.sectionTitles || { N: '', S: '', E: '', W: '' }; s.sectionMeshes = {};
-  for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', s.accent), transparent: true, depthWrite: false })); positionSectionTitle(s, sd, m); m.visible = false; scene.add(m); s.sectionMeshes[sd] = m; }
+  for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', s.accent, headingFontFor(s)), transparent: true, depthWrite: false })); positionSectionTitle(s, sd, m); m.visible = false; scene.add(m); s.sectionMeshes[sd] = m; }
   updateSectionTitles(s);
   s.stars = new THREE.Group(); const sm = new THREE.MeshBasicMaterial({ color: 0xbcd0ff }); for (let i = 0; i < 26; i++) { const stt = new THREE.Mesh(new THREE.SphereGeometry(0.03 + Math.random() * 0.03, 6, 6), sm); stt.position.set(cx + (Math.random() - .5) * w * .9, H - 0.25, cz + (Math.random() - .5) * d * .9); s.stars.add(stt); } scene.add(s.stars); s.stars.visible = s.floorType === 'dark';
   s.sides = { N: [], S: [], E: [], W: [] }; s.walls = { N: [], S: [], E: [], W: [] }; s.frames = { N: [], S: [], E: [], W: [] };
@@ -651,7 +673,7 @@ function updateShowcaseHeading(s) {
   // color, floor, preset) routed through applyTheme() re-shows the showcase's wall headers even
   // while the showcase itself is toggled off.
   const on = s.showcaseEnabled !== false;
-  for (const sd of SIDES) { const txt = showcaseHeadingText(s, sd); const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, headingColorFor(s)); m.material.needsUpdate = true; m.visible = on && showSectionTitles && !!txt; }
+  for (const sd of SIDES) { const txt = showcaseHeadingText(s, sd); const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, headingColorFor(s), headingFontFor(s)); m.material.needsUpdate = true; m.visible = on && showSectionTitles && !!txt; }
 }
 function positionShowcaseHeading(s, side, m) {
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2, x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
@@ -694,7 +716,7 @@ function buildShowcase(s) {
   };
   for (const sd of SIDES) s.showcaseFrames[sd].art.userData.showcaseSide = sd;
   s.showcaseHeadingMeshes = {};
-  for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', s.accent), transparent: true, depthWrite: false })); positionShowcaseHeading(s, sd, m); scene.add(m); s.showcaseHeadingMeshes[sd] = m; }
+  for (const sd of SIDES) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: makeHeadingTex('', s.accent, headingFontFor(s)), transparent: true, depthWrite: false })); positionShowcaseHeading(s, sd, m); scene.add(m); s.showcaseHeadingMeshes[sd] = m; }
   updateShowcaseHeading(s);
   cycleShowcase();
 }
@@ -916,8 +938,10 @@ function doorHeadingText(c) { return c ? (c.heading || '').trim() : ''; }
 function updateDoorHeading(c) {
   if (!c || !c.headingMeshes) return;
   const txt = doorHeadingText(c);
-  const color = c.headingColor != null ? c.headingColor : headingColorFor(spaces.get(c.a));
-  for (const m of c.headingMeshes) { m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, color); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+  const owner = spaces.get(c.a);
+  const color = c.headingColor != null ? c.headingColor : headingColorFor(owner);
+  const font = headingFontFor(owner);
+  for (const m of c.headingMeshes) { m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, color, font); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
 }
 function setDoorHeading(c, text) {
   if (!c) return; const prev = c.heading || '', next = text.trim(); if (prev === next) return;
@@ -1439,7 +1463,7 @@ async function deleteSpace(id, opts = {}) {
   if (opts.confirm && !confirm('Delete "' + s.name + '" and everything in it?')) return;
   GT.stop();
   let snap = null;
-  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, checkerColor: s.checkerColor, ceilColor: s.ceilColor, ceilPattern: s.ceilPattern, headingColor: s.headingColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings ? { ...s.showcaseHeadings } : null, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes ? { ...s.showcaseWallScopes } : null }, conns: [], media }; }
+  if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, checkerColor: s.checkerColor, ceilColor: s.ceilColor, ceilPattern: s.ceilPattern, headingColor: s.headingColor, headingFont: s.headingFont, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings ? { ...s.showcaseHeadings } : null, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes ? { ...s.showcaseWallScopes } : null }, conns: [], media }; }
   const involved = connections.filter(c => c.a === id || spaceOnOtherSide(c) === id);
   const reseal = involved.map(c => ({ otherId: (c.a === id) ? spaceOnOtherSide(c) : c.a, otherSide: (c.a === id) ? OPP[c.side] : c.side, lo: c.lo, hi: c.hi, doorMeshes: c.doorMeshes }));
   if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor }));
@@ -1502,7 +1526,7 @@ const saveCustomThemes = () => { const list = customThemes.slice(); return (them
 // made. Without this, two overlapping DB.put calls could resolve out of order and an EARLIER, staler
 // snapshot could overwrite a LATER one, silently discarding whichever edits came in between.
 let saveQueue = Promise.resolve();
-const saveConfig = () => { const config = { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, checkerColor: s.checkerColor, ceilColor: s.ceilColor, ceilPattern: s.ceilPattern, headingColor: s.headingColor, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor })), nextId, showSectionTitles }; return (saveQueue = saveQueue.then(() => DB.put({ frame: 'config', config }))); };
+const saveConfig = () => { const config = { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, checkerColor: s.checkerColor, ceilColor: s.ceilColor, ceilPattern: s.ceilPattern, headingColor: s.headingColor, headingFont: s.headingFont, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor })), nextId, showSectionTitles }; return (saveQueue = saveQueue.then(() => DB.put({ frame: 'config', config }))); };
 
 /* ===== showcase (main wing's centre display) ===== */
 function mainWing() { for (const s of spaces.values()) if (s.type === 'room') return s; return null; }
@@ -1987,6 +2011,7 @@ function buildWingEditor() {
     const ceilPatOpts = CEIL_PATTERNS.map(p => `<option value="${p.value}"${(s.ceilPattern || 'flat') === p.value ? ' selected' : ''}>${p.name}</option>`).join('');
     const checkerColorVal = s.checkerColor != null ? s.checkerColor : 0x141414;
     const headColorVal = headingColorFor(s);
+    const headFontOpts = HEADING_FONTS.map(fo => `<option value="${fo.value.replace(/"/g, '&quot;')}"${headingFontFor(s) === fo.value ? ' selected' : ''}>${fo.name}</option>`).join('');
     const customThemeOpts = customThemes.length ? `<option value="">Apply a saved theme…</option>${customThemes.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}` : '';
     const el = document.createElement('div'); el.className = 'wing' + (s.id === currentId() ? ' current' : '') + (wingExpanded.has(s.id) ? '' : ' collapsed'); el.dataset.id = s.id;
     el.innerHTML = `<div class="wtop"><button type="button" class="wtoggle" aria-label="Expand or collapse">▾</button><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"><span class="whereami">📍 Here</span></div>`
@@ -2005,6 +2030,7 @@ function buildWingEditor() {
         + `<div style="${LBL}">Ceiling colour (preset)</div><select class="wceil">${ceilOpts}</select>`
         + `<div style="${LBL}">Ceiling colour (custom)</div><div class="pickrow"><input type="color" class="wceilpick" value="${hex(ceilColorVal)}"><input class="hex wceilhex" value="${hex(ceilColorVal)}" spellcheck="false" maxlength="7"></div>`
         + `<div style="${LBL}">Wall &amp; doorway header colour</div><div class="pickrow"><input type="color" class="wheadpick" value="${hex(headColorVal)}"><input class="hex wheadhex" value="${hex(headColorVal)}" spellcheck="false" maxlength="7"></div>`
+        + `<div style="${LBL}">Wall &amp; doorway header font</div><select class="wheadfont">${headFontOpts}</select>`
         + `</div></details>`
       + `<div style="${LBL};margin-top:6px">Custom themes</div>`
       + (customThemes.length ? `<select class="wcustomtheme">${customThemeOpts}</select>` : `<div class="lbl" style="margin-top:0;color:#6a6a76">Save this room's floor, wall &amp; ceiling as a reusable theme.</div>`)
@@ -2063,6 +2089,7 @@ function buildWingEditor() {
     hp.oninput = () => setHead(parseInt(hp.value.slice(1), 16), false);
     hp.onchange = () => setHead(parseInt(hp.value.slice(1), 16), true);
     hh.onchange = () => { const v = normHex(hh.value); if (v) setHead(parseInt(v.slice(1), 16), true); else hh.value = hex(headingColorFor(s)); };
+    el.querySelector('.wheadfont').onchange = (ev) => { applyMutate(sp => sp.headingFont = ev.target.value); };
     el.querySelector('[data-savetheme]').onclick = () => {
       const name = (prompt('Name this theme:', s.name + ' theme') || '').trim(); if (!name) return;
       const t = { id: 'ct' + Date.now() + Math.floor(Math.random() * 1000), name, wallColor: s.wallColor, wallPattern: s.wallPattern || 'smooth', floorType: s.floorType, floorTint: s.floorTint != null ? s.floorTint : 0xffffff, checkerColor: s.checkerColor != null ? s.checkerColor : 0x141414, ceilColor: s.ceilColor != null ? s.ceilColor : 0x101018, ceilPattern: s.ceilPattern || 'flat' };
@@ -2182,7 +2209,7 @@ function buildFromConfig(cfg) {
     let s;
     if (o.floorType) {
       // New format: independent floor/wall
-      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, checkerColor: o.checkerColor, ceilColor: o.ceilColor, ceilPattern: o.ceilPattern, headingColor: o.headingColor, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseHeadings: migrateShowcaseHeadings(o), showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
+      s = { id: o.id, type: o.type, name: o.name, floorType: o.floorType, wallColor: o.wallColor, wallPattern: o.wallPattern, floorTint: o.floorTint, checkerColor: o.checkerColor, ceilColor: o.ceilColor, ceilPattern: o.ceilPattern, headingColor: o.headingColor, headingFont: o.headingFont, wallRoughness: o.wallRoughness, wallMetalness: o.wallMetalness, lightColor: o.lightColor, lightIntensity: o.lightIntensity, accent: o.accent, x0: o.x0, x1: o.x1, z0: o.z0, z1: o.z1, sectionTitles: o.sectionTitles || { N: '', S: '', E: '', W: '' }, showcaseScope: o.showcaseScope || 'all', showcaseHeadings: migrateShowcaseHeadings(o), showcaseWallColor: o.showcaseWallColor, showcaseWallPattern: o.showcaseWallPattern, showcaseWallScopes: o.showcaseWallScopes, showcaseEnabled: o.showcaseEnabled !== false };
     } else {
       // Old format: styleId only — convert to new format
       const preset = presetById(o.styleId);
