@@ -911,13 +911,18 @@ function buildDoorPortal(c) { const a = spaces.get(c.a); if (!a) return []; cons
 }
 // The editable heading painted directly above a doorway (as opposed to a wall's own side-wide
 // heading) — one mesh per side of the opening so it reads correctly walking through from either
-// room. Skipped for a seamless hall-to-hall extension, which has no header band at all. Uses the
-// exact same size formula and vertical slot (y=3.78) as positionSectionTitle so a doorway heading
-// and a wall heading read as the same kind of thing — since the two are mutually exclusive per wall
-// side (see setWallHeading/setDoorHeading: setting one clears the other), they're never both visible
-// on the same side at once, so sharing the slot can't cause them to run into each other.
+// room. Skipped for a seamless hall-to-hall extension, which has no header band at all. Sized from
+// the WALL's full length (exactly like positionSectionTitle), not the doorway opening's own width —
+// a doorway is typically much narrower than the wall it sits in (a fixed ~3.2 units vs. a wall that's
+// often wide enough to hit the 1.05 size cap), so keying off the opening's own width undersized it
+// even with an otherwise-identical formula. Using the wall's length instead guarantees a doorway
+// heading is exactly the same size as that wall's own heading. Shares its vertical slot (y=3.78) too
+// — since the two are mutually exclusive per wall side (see setWallHeading/setDoorHeading: setting
+// one clears the other), they're never both visible on the same side at once, so sharing the slot
+// can't cause them to run into each other.
 function positionDoorHeading(s, side, lo, hi, m) {
-  const mid = (lo + hi) / 2, len = hi - lo, h = Math.min(1.05, Math.max(0.6, (len - 0.6) / 4)); m.scale.set(h * 4, h, 1);
+  const mid = (lo + hi) / 2, wallLen = (side === 'N' || side === 'S') ? s.x1 - s.x0 : s.z1 - s.z0;
+  const h = Math.min(1.05, Math.max(0.6, (wallLen - 0.8) / 4)); m.scale.set(h * 4, h, 1);
   const off = T / 2 + 0.06, y = 3.78;
   if (side === 'N') { m.position.set(mid, y, s.z0 + off); m.rotation.y = 0; }
   else if (side === 'S') { m.position.set(mid, y, s.z1 - off); m.rotation.y = Math.PI; }
@@ -940,7 +945,7 @@ function updateDoorHeading(c) {
   const txt = doorHeadingText(c);
   const owner = spaces.get(c.a);
   const color = c.headingColor != null ? c.headingColor : headingColorFor(owner);
-  const font = headingFontFor(owner);
+  const font = c.headingFont != null ? c.headingFont : headingFontFor(owner);
   for (const m of c.headingMeshes) { m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, color, font); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
 }
 function setDoorHeading(c, text) {
@@ -1466,7 +1471,7 @@ async function deleteSpace(id, opts = {}) {
   if (opts.undo) { const media = []; for (const f of spaceFramesList(s)) { const rec = await DB.get(f.id); if (rec) media.push(rec); } snap = { s: { id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, checkerColor: s.checkerColor, ceilColor: s.ceilColor, ceilPattern: s.ceilPattern, headingColor: s.headingColor, headingFont: s.headingFont, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: { ...(s.sectionTitles || {}) }, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings ? { ...s.showcaseHeadings } : null, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes ? { ...s.showcaseWallScopes } : null }, conns: [], media }; }
   const involved = connections.filter(c => c.a === id || spaceOnOtherSide(c) === id);
   const reseal = involved.map(c => ({ otherId: (c.a === id) ? spaceOnOtherSide(c) : c.a, otherSide: (c.a === id) ? OPP[c.side] : c.side, lo: c.lo, hi: c.hi, doorMeshes: c.doorMeshes }));
-  if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor }));
+  if (snap) snap.conns = involved.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor, headingFont: c.headingFont }));
   for (const c of involved) { const i = connections.indexOf(c); if (i >= 0) connections.splice(i, 1); }
   disposeSpace(s); spaces.delete(id);
   for (const r of reseal) { (r.doorMeshes || []).forEach(removeBox); const o = spaces.get(r.otherId); if (o) { const arr = o.sides[r.otherSide]; const idx = arr.findIndex(p => Math.abs(p[0] - r.lo) < 0.05 && Math.abs(p[1] - r.hi) < 0.05); if (idx >= 0) arr.splice(idx, 1); await rebuildWithCorners(o, r.otherSide); } }
@@ -1476,7 +1481,7 @@ async function deleteSpace(id, opts = {}) {
 }
 async function rebuildSpace(snap) {
   const s = { ...snap.s }; spaces.set(s.id, s); buildSpaceBase(s);
-  for (const c of snap.conns) { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor }); const A = spaces.get(c.a); if (A) A.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb && spaces.get(nb)) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); addInsetSide(spaces.get(nb), OPP[c.side]); } }
+  for (const c of snap.conns) { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor, headingFont: c.headingFont }); const A = spaces.get(c.a); if (A) A.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb && spaces.get(nb)) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); addInsetSide(spaces.get(nb), OPP[c.side]); } }
   for (const sd of SIDES) buildWallSide(s, sd);
   const done = new Set();
   for (const c of snap.conns) { const nbId = (c.a === s.id) ? spaceOnOtherSide(c) : c.a; const nbSide = (c.a === s.id) ? OPP[c.side] : c.side; const key = nbId + nbSide; if (spaces.get(nbId) && !done.has(key)) { await rebuildWithCorners(spaces.get(nbId), nbSide); done.add(key); } }
@@ -1526,7 +1531,7 @@ const saveCustomThemes = () => { const list = customThemes.slice(); return (them
 // made. Without this, two overlapping DB.put calls could resolve out of order and an EARLIER, staler
 // snapshot could overwrite a LATER one, silently discarding whichever edits came in between.
 let saveQueue = Promise.resolve();
-const saveConfig = () => { const config = { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, checkerColor: s.checkerColor, ceilColor: s.ceilColor, ceilPattern: s.ceilPattern, headingColor: s.headingColor, headingFont: s.headingFont, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor })), nextId, showSectionTitles }; return (saveQueue = saveQueue.then(() => DB.put({ frame: 'config', config }))); };
+const saveConfig = () => { const config = { spaces: [...spaces.values()].map(s => ({ id: s.id, type: s.type, name: s.name, floorType: s.floorType, wallColor: s.wallColor, wallPattern: s.wallPattern, floorTint: s.floorTint, checkerColor: s.checkerColor, ceilColor: s.ceilColor, ceilPattern: s.ceilPattern, headingColor: s.headingColor, headingFont: s.headingFont, wallRoughness: s.wallRoughness, wallMetalness: s.wallMetalness, lightColor: s.lightColor, lightIntensity: s.lightIntensity, accent: s.accent, x0: s.x0, x1: s.x1, z0: s.z0, z1: s.z1, sectionTitles: s.sectionTitles, showcaseScope: s.showcaseScope, showcaseHeadings: s.showcaseHeadings, showcaseWallColor: s.showcaseWallColor, showcaseWallPattern: s.showcaseWallPattern, showcaseWallScopes: s.showcaseWallScopes, showcaseEnabled: s.showcaseEnabled })), connections: connections.map(c => ({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor, headingFont: c.headingFont })), nextId, showSectionTitles }; return (saveQueue = saveQueue.then(() => DB.put({ frame: 'config', config }))); };
 
 /* ===== showcase (main wing's centre display) ===== */
 function mainWing() { for (const s of spaces.values()) if (s.type === 'room') return s; return null; }
@@ -1789,6 +1794,9 @@ function openCtxMenu(kind, target) {
     const fallback = spaces.get(c.a);
     ctxAddColorPicker(optsEl, 'Heading colour', c.headingColor != null ? c.headingColor : headingColorFor(fallback), (v, commit) => { c.headingColor = v; updateDoorHeading(c); if (commit) saveConfig(); });
     if (c.headingColor != null) ctxAddBtn(optsEl, '↺ Match room colour', '', () => { c.headingColor = null; updateDoorHeading(c); saveConfig(); closeCtxMenu(); toast('Doorway heading now matches the room'); });
+    const curDoorFont = c.headingFont != null ? c.headingFont : headingFontFor(fallback);
+    ctxAddSwatches(optsEl, 'Heading font', HEADING_FONTS.map(fo => ({ label: fo.name, value: fo.value, on: fo.value === curDoorFont })), true, (fo) => { c.headingFont = fo.value; updateDoorHeading(c); saveConfig(); toast('Doorway heading font set'); });
+    if (c.headingFont != null) ctxAddBtn(optsEl, '↺ Match room font', '', () => { c.headingFont = null; updateDoorHeading(c); saveConfig(); closeCtxMenu(); toast('Doorway heading now matches the room'); });
     ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
     if (document.pointerLockElement) document.exitPointerLock();
     return;
@@ -1804,6 +1812,9 @@ function openCtxMenu(kind, target) {
     const has = wallHeadingText({ id: target.id, side: target.side }).trim();
     ctxAddBtn(optsEl, has ? '✎ Edit wall heading' : '＋ Add wall heading', '', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleWall({ id: target.id, side: target.side, u: target.u }); });
     if (has) ctxAddBtn(optsEl, '⌫ Remove heading', 'warn', () => { setWallHeading({ id: target.id, side: target.side }, ''); closeCtxMenu(); toast('Heading removed'); });
+    // Font is a room-level setting shared by this room's wall AND doorway headings (like heading
+    // colour already is) — picking one here changes it for the whole room, not just this wall.
+    ctxAddSwatches(optsEl, 'Heading font (whole room)', HEADING_FONTS.map(fo => ({ label: fo.name, value: fo.value, on: fo.value === headingFontFor(s) })), true, (fo) => { s.headingFont = fo.value; applyTheme(s); toast('Heading font updated'); });
   } else {
     let applyAll = false;
     const scopeRow = document.createElement('div'); scopeRow.className = 'musicrow'; scopeRow.style.margin = '0 0 8px';
@@ -2011,7 +2022,6 @@ function buildWingEditor() {
     const ceilPatOpts = CEIL_PATTERNS.map(p => `<option value="${p.value}"${(s.ceilPattern || 'flat') === p.value ? ' selected' : ''}>${p.name}</option>`).join('');
     const checkerColorVal = s.checkerColor != null ? s.checkerColor : 0x141414;
     const headColorVal = headingColorFor(s);
-    const headFontOpts = HEADING_FONTS.map(fo => `<option value="${fo.value.replace(/"/g, '&quot;')}"${headingFontFor(s) === fo.value ? ' selected' : ''}>${fo.name}</option>`).join('');
     const customThemeOpts = customThemes.length ? `<option value="">Apply a saved theme…</option>${customThemes.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}` : '';
     const el = document.createElement('div'); el.className = 'wing' + (s.id === currentId() ? ' current' : '') + (wingExpanded.has(s.id) ? '' : ' collapsed'); el.dataset.id = s.id;
     el.innerHTML = `<div class="wtop"><button type="button" class="wtoggle" aria-label="Expand or collapse">▾</button><span class="kind">${s.type}</span><input class="wname" value="${s.name.replace(/"/g, '&quot;')}" maxlength="22"><span class="whereami">📍 Here</span></div>`
@@ -2030,7 +2040,6 @@ function buildWingEditor() {
         + `<div style="${LBL}">Ceiling colour (preset)</div><select class="wceil">${ceilOpts}</select>`
         + `<div style="${LBL}">Ceiling colour (custom)</div><div class="pickrow"><input type="color" class="wceilpick" value="${hex(ceilColorVal)}"><input class="hex wceilhex" value="${hex(ceilColorVal)}" spellcheck="false" maxlength="7"></div>`
         + `<div style="${LBL}">Wall &amp; doorway header colour</div><div class="pickrow"><input type="color" class="wheadpick" value="${hex(headColorVal)}"><input class="hex wheadhex" value="${hex(headColorVal)}" spellcheck="false" maxlength="7"></div>`
-        + `<div style="${LBL}">Wall &amp; doorway header font</div><select class="wheadfont">${headFontOpts}</select>`
         + `</div></details>`
       + `<div style="${LBL};margin-top:6px">Custom themes</div>`
       + (customThemes.length ? `<select class="wcustomtheme">${customThemeOpts}</select>` : `<div class="lbl" style="margin-top:0;color:#6a6a76">Save this room's floor, wall &amp; ceiling as a reusable theme.</div>`)
@@ -2089,7 +2098,6 @@ function buildWingEditor() {
     hp.oninput = () => setHead(parseInt(hp.value.slice(1), 16), false);
     hp.onchange = () => setHead(parseInt(hp.value.slice(1), 16), true);
     hh.onchange = () => { const v = normHex(hh.value); if (v) setHead(parseInt(v.slice(1), 16), true); else hh.value = hex(headingColorFor(s)); };
-    el.querySelector('.wheadfont').onchange = (ev) => { applyMutate(sp => sp.headingFont = ev.target.value); };
     el.querySelector('[data-savetheme]').onclick = () => {
       const name = (prompt('Name this theme:', s.name + ' theme') || '').trim(); if (!name) return;
       const t = { id: 'ct' + Date.now() + Math.floor(Math.random() * 1000), name, wallColor: s.wallColor, wallPattern: s.wallPattern || 'smooth', floorType: s.floorType, floorTint: s.floorTint != null ? s.floorTint : 0xffffff, checkerColor: s.checkerColor != null ? s.checkerColor : 0x141414, ceilColor: s.ceilColor != null ? s.ceilColor : 0x101018, ceilPattern: s.ceilPattern || 'flat' };
@@ -2219,7 +2227,7 @@ function buildFromConfig(cfg) {
   });
   nextId = cfg.nextId || spaces.size;
   spaces.forEach(buildSpaceBase);
-  (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); addInsetSide(spaces.get(nb), OPP[c.side]); } });
+  (cfg.connections || []).forEach(c => { connections.push({ a: c.a, side: c.side, lo: c.lo, hi: c.hi, heading: c.heading, headingColor: c.headingColor, headingFont: c.headingFont }); const a = spaces.get(c.a); if (a) a.sides[c.side].push([c.lo, c.hi]); const nb = spaceOnOtherSide(c); if (nb) { spaces.get(nb).sides[OPP[c.side]].push([c.lo, c.hi]); addInsetSide(spaces.get(nb), OPP[c.side]); } });
   spaces.forEach(s => { for (const sd of SIDES) buildWallSide(s, sd); });
   connections.forEach(c => { c.doorMeshes = buildConnDoors(c); });
   spaces.forEach(s => applyTheme(s, false));
