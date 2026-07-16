@@ -1192,7 +1192,16 @@ function stopGif(f) { if (!f || !f.gif) return; const a = f.gif; a.dead = true; 
 // the page). Downscale to IMAGE_MAX_DIM before upload, same idea as parseGif's maxDim for GIFs — the
 // lightbox still shows the original full-res blob via f.srcURL, so nothing crisp is lost.
 const IMAGE_MAX_DIM = 2048;
-function applyImage(f, url) { stopGif(f); loader.load(url, (t) => {
+// Photos decode one at a time, for the same reason GIFs already do below (see gifQueue): at boot,
+// every filled frame across the whole museum starts loading as soon as it's created, and the browser
+// decodes each image to its FULL original resolution before this function ever gets a chance to
+// downscale it — so letting a dozen-plus full-res camera photos decode concurrently is itself a
+// memory spike big enough to crash iOS Safari, no matter how small the final on-GPU textures end up.
+// Serializing caps the peak to one full-res decode in flight at a time.
+let imgQueue = Promise.resolve();
+function loadTextureQueued(url) { return imgQueue = imgQueue.then(() => new Promise((resolve) => loader.load(url, resolve, undefined, () => resolve(null)))); }
+function applyImage(f, url) { stopGif(f); loadTextureQueued(url).then((t) => {
+  if (!t) return;
   if (f.video) { f.video.pause(); f.video = null; }
   const img = t.image; const scale = Math.min(1, IMAGE_MAX_DIM / Math.max(img.width, img.height));
   let tex = t;
