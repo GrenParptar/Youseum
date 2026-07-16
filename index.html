@@ -1791,12 +1791,19 @@ function openCtxMenu(kind, target) {
     const has = doorHeadingText(c);
     ctxAddBtn(optsEl, has ? '✎ Edit heading' : '＋ Add heading over this doorway', 'accent', () => { ctxMenuEl.classList.remove('open'); ctxOpen = false; ctxTarget = null; titleDoorway(c); });
     if (has) ctxAddBtn(optsEl, '⌫ Remove heading', 'warn', () => { setDoorHeading(c, ''); closeCtxMenu(); toast('Heading removed'); });
-    const fallback = spaces.get(c.a);
+    // A doorway sits between two rooms, so "the room" it should match is ambiguous by default — the
+    // OLD behaviour deferred to whichever room happened to be connection's fixed "A" side (an
+    // implementation detail from when the doorway was first built), which could easily be the room on
+    // the far side of the door from wherever the player is actually standing right now. "Match room"
+    // instead snapshots whichever room the player is CURRENTLY standing in at the moment they click —
+    // a one-time copy of its live colour/font, not a link back to that original fixed side.
+    const nearRoom = () => spaces.get(currentId()) || spaces.get(c.a);
+    const fallback = nearRoom();
     ctxAddColorPicker(optsEl, 'Heading colour', c.headingColor != null ? c.headingColor : headingColorFor(fallback), (v, commit) => { c.headingColor = v; updateDoorHeading(c); if (commit) saveConfig(); });
-    if (c.headingColor != null) ctxAddBtn(optsEl, '↺ Match room colour', '', () => { c.headingColor = null; updateDoorHeading(c); saveConfig(); closeCtxMenu(); toast('Doorway heading now matches the room'); });
+    ctxAddBtn(optsEl, '↺ Match room colour', '', () => { c.headingColor = headingColorFor(nearRoom()); updateDoorHeading(c); saveConfig(); closeCtxMenu(); toast("Doorway heading now matches this room's colour"); });
     const curDoorFont = c.headingFont != null ? c.headingFont : headingFontFor(fallback);
     ctxAddSwatches(optsEl, 'Heading font', HEADING_FONTS.map(fo => ({ label: fo.name, value: fo.value, on: fo.value === curDoorFont })), true, (fo) => { c.headingFont = fo.value; updateDoorHeading(c); saveConfig(); toast('Doorway heading font set'); });
-    if (c.headingFont != null) ctxAddBtn(optsEl, '↺ Match room font', '', () => { c.headingFont = null; updateDoorHeading(c); saveConfig(); closeCtxMenu(); toast('Doorway heading now matches the room'); });
+    ctxAddBtn(optsEl, '↺ Match room font', '', () => { c.headingFont = headingFontFor(nearRoom()); updateDoorHeading(c); saveConfig(); closeCtxMenu(); toast("Doorway heading now matches this room's font"); });
     ctxMenuEl.classList.add('open'); ctxOpen = true; promptEl.classList.remove('show');
     if (document.pointerLockElement) document.exitPointerLock();
     return;
