@@ -608,9 +608,22 @@ function positionSectionTitle(s, side, m) {
   else if (side === 'E') { m.position.set(s.x1 - off, y, cz); m.rotation.y = -Math.PI / 2; }
   else { m.position.set(s.x0 + off, y, cz); m.rotation.y = Math.PI / 2; }
 }
+// Regenerating a heading texture means allocating a 2048x512 canvas, drawing into it, and uploading a
+// fresh GPU texture — real work, not free. applyTheme() calls updateSectionTitles/updateDoorHeading/
+// updateShowcaseHeading on every wall/floor/ceiling colour change, and a colour picker's oninput fires
+// continuously while dragging — none of which ever change a heading's text/colour/font, so without
+// this check, dragging a wall colour slider regenerated every heading texture in the space (and every
+// connected doorway's) dozens of times a second for no visible difference. Skip the regenerate step
+// whenever the text/colour/font that actually determines the pixels hasn't changed since last render.
+function setHeadingTex(m, txt, color, font) {
+  const key = txt + '|' + color + '|' + font;
+  if (m.userData._headKey === key) return;
+  m.userData._headKey = key;
+  m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, color, font); m.material.needsUpdate = true;
+}
 function updateSectionTitles(s) {
   for (const sd of SIDES) { const m = s.sectionMeshes?.[sd]; if (!m) continue; const txt = (s.sectionTitles?.[sd] || '').trim();
-    m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, headingColorFor(s), headingFontFor(s)); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+    setHeadingTex(m, txt, headingColorFor(s), headingFontFor(s)); m.visible = showSectionTitles && !!txt; }
 }
 // A point light of fixed intensity blows out narrow halls (surfaces sit close to it) while looking
 // right in room-sized wings. Scale intensity by floor area so a hall matches a wing's brightness
@@ -673,7 +686,7 @@ function updateShowcaseHeading(s) {
   // color, floor, preset) routed through applyTheme() re-shows the showcase's wall headers even
   // while the showcase itself is toggled off.
   const on = s.showcaseEnabled !== false;
-  for (const sd of SIDES) { const txt = showcaseHeadingText(s, sd); const m = s.showcaseHeadingMeshes[sd]; m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, headingColorFor(s), headingFontFor(s)); m.material.needsUpdate = true; m.visible = on && showSectionTitles && !!txt; }
+  for (const sd of SIDES) { const txt = showcaseHeadingText(s, sd); const m = s.showcaseHeadingMeshes[sd]; setHeadingTex(m, txt, headingColorFor(s), headingFontFor(s)); m.visible = on && showSectionTitles && !!txt; }
 }
 function positionShowcaseHeading(s, side, m) {
   const cx = s.cx, cz = s.cz, half = SHOWCASE_W / 2, x0 = cx - half, x1 = cx + half, z0 = cz - half, z1 = cz + half;
@@ -946,7 +959,7 @@ function updateDoorHeading(c) {
   const owner = spaces.get(c.a);
   const color = c.headingColor != null ? c.headingColor : headingColorFor(owner);
   const font = c.headingFont != null ? c.headingFont : headingFontFor(owner);
-  for (const m of c.headingMeshes) { m.material.map?.dispose?.(); m.material.map = makeHeadingTex(txt, color, font); m.material.needsUpdate = true; m.visible = showSectionTitles && !!txt; }
+  for (const m of c.headingMeshes) { setHeadingTex(m, txt, color, font); m.visible = showSectionTitles && !!txt; }
 }
 function setDoorHeading(c, text) {
   if (!c) return; const prev = c.heading || '', next = text.trim(); if (prev === next) return;
